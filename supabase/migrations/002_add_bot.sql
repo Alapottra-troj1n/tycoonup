@@ -1,0 +1,2 @@
+-- Phase 3.5: bot player support
+ALTER TABLE players ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT FALSE;
