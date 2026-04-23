@@ -18,6 +18,7 @@ import AuctionModal from './AuctionModal';
 import WinScreen from './WinScreen';
 import TileDetailModal from './TileDetailModal';
 import BuyOfferModal from './BuyOfferModal';
+import PropertyManager from './PropertyManager';
 
 const NEON: Record<string, string> = {
   cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
@@ -63,6 +64,9 @@ export default function GameRoomClient({
 
   const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [showProps, setShowProps] = useState(false);
+  const [rollLoading, setRollLoading] = useState(false);
+  const [endLoading, setEndLoading] = useState(false);
 
   const playersRef = useRef<Player[]>(initialPlayers);
   useEffect(() => {
@@ -142,6 +146,20 @@ export default function GameRoomClient({
   const myPlayer         = activePlayers.find((p) => p.id === myPlayerId) ?? null;
   const currentPlayer    = activePlayers[activeRoom.current_player_idx] ?? null;
   const isMyTurn         = currentPlayer?.id === myPlayerId;
+
+  async function handleRoll() {
+    if (!myPlayer || rollLoading) return;
+    setRollLoading(true);
+    try { await rollDice(activeRoom.id, myPlayer.id); } catch { /* handled by server action */ }
+    finally { setRollLoading(false); }
+  }
+
+  async function handleEndTurn() {
+    if (!myPlayer || endLoading) return;
+    setEndLoading(true);
+    try { await endTurn(activeRoom.id, myPlayer.id); } catch { /* handled by server action */ }
+    finally { setEndLoading(false); }
+  }
 
   if (activeRoom.status === 'lobby') {
     return <Lobby room={activeRoom} players={activePlayers} myPlayerId={myPlayerId} />;
@@ -346,13 +364,36 @@ export default function GameRoomClient({
             players={activePlayers}
             properties={activeProperties}
             onTileClick={(id) => setSelectedTile(TILES[id])}
+            lastDice={lastDiceRoll ?? undefined}
+            diceAnimating={diceAnimating}
+            isMyTurn={isMyTurn && !myPlayer?.is_bankrupt}
+            turnPhase={activeRoom.turn_phase}
+            currentPlayerName={currentPlayer?.name}
+            currentPlayerColor={currentPlayer?.color}
+            doublesRolled={activeRoom.doubles_turn ?? false}
+            onRoll={handleRoll}
+            onEndTurn={handleEndTurn}
+            isRollLoading={rollLoading || diceAnimating}
+            isEndLoading={endLoading}
           />
         </div>
       </div>
 
       {/* ── Right sidebar ── */}
       <div style={{ ...sidebarStyle, width: 280, borderLeft: '1px solid var(--stroke-hairline)' }}>
-        {/* ActionPanel */}
+
+        {/* PropertyManager modal (opened from Quick Actions) */}
+        {showProps && myPlayer && (
+          <PropertyManager
+            room={activeRoom}
+            player={myPlayer}
+            properties={activeProperties}
+            allPlayers={activePlayers}
+            onClose={() => setShowProps(false)}
+          />
+        )}
+
+        {/* ActionPanel — wallet balance + in-jail state + contextual status */}
         {myPlayer && (
           <div style={{ padding: '12px 12px 0', flexShrink: 0 }}>
             <ActionPanel
@@ -362,6 +403,85 @@ export default function GameRoomClient({
               properties={activeProperties}
               allPlayers={activePlayers}
             />
+          </div>
+        )}
+
+        {/* Quick Actions panel */}
+        {myPlayer && (
+          <div style={{ padding: '8px 12px 0', flexShrink: 0 }}>
+            <div style={{
+              background: 'var(--bg-glass-strong)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+              border: '1px solid var(--stroke-hairline)',
+              borderRadius: 'var(--r-lg)',
+              overflow: 'hidden',
+            }}>
+              {/* Panel header */}
+              <div style={{
+                padding: '11px 14px 9px',
+                borderBottom: '1px solid var(--stroke-hairline)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>
+                  Quick actions
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                  {isMyTurn ? 'your turn' : 'your turn soon'}
+                </span>
+              </div>
+
+              {/* Panel body */}
+              <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Propose trade */}
+                <button style={{
+                  width: '100%', padding: '10px 14px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  background: 'var(--bg-raised)',
+                  border: '1px solid var(--stroke-soft)',
+                  borderRadius: 'var(--r-md)',
+                  fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
+                  color: 'var(--text-primary)', cursor: 'pointer',
+                  transition: 'all var(--dur-fast) var(--ease-out)',
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                  Propose trade
+                </button>
+
+                {/* Manage properties */}
+                <button
+                  onClick={() => setShowProps(true)}
+                  style={{
+                    width: '100%', padding: '8px 14px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    background: 'transparent',
+                    border: '1px solid var(--stroke-soft)',
+                    borderRadius: 'var(--r-md)',
+                    fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
+                    color: 'var(--text-secondary)', cursor: 'pointer',
+                    transition: 'all var(--dur-fast) var(--ease-out)',
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 6v12M9 9h4.5a2.5 2.5 0 0 1 0 5H9m0 0h5"/>
+                  </svg>
+                  Manage properties
+                </button>
+
+                {/* Helper text */}
+                <div style={{
+                  fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5,
+                  textAlign: 'center', padding: '4px 8px 0',
+                  fontFamily: 'var(--font-ui)',
+                }}>
+                  Click any tile you own to upgrade, mortgage, or list it for trade.
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

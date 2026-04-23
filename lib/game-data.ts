@@ -46,14 +46,14 @@ export const TILES: Tile[] = [
 
 // ── Set display colours ────────────────────────────────────────────────────
 export const SET_COLORS: Record<string, string> = {
-  brown: '#c8602a',
-  'light-blue': '#00d4ff',
-  pink: '#ff2d78',
-  orange: '#ff7700',
-  red: '#ff2222',
-  yellow: '#ffcc00',
-  green: '#00cc44',
-  'dark-blue': '#0055ff',
+  brown: '#9e6b3e',
+  'light-blue': '#4a9ec2',
+  pink: '#c05f8c',
+  orange: '#c87840',
+  red: '#b85555',
+  yellow: '#c2a030',
+  green: '#3e9460',
+  'dark-blue': '#3e5eaa',
 };
 
 // ── Monopoly advantages — unlocked when a player owns the full set ─────────
