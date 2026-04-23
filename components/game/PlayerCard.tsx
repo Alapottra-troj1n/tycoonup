@@ -1,9 +1,38 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import type { Player, Property } from '@/lib/types';
-import { TILES, PLAYER_COLOR_MAP } from '@/lib/game-data';
+import { TILES } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
+
+const NEON: Record<string, string> = {
+  cyan:    'var(--neon-cyan)',
+  magenta: 'var(--neon-magenta)',
+  lime:    'var(--neon-lime)',
+  amber:   'var(--neon-amber)',
+  violet:  'var(--neon-violet)',
+  rose:    'var(--neon-rose)',
+};
+
+function PlayerToken({ color, size = 32 }: { color: string; size?: number }) {
+  const c = NEON[color] || 'var(--neon-cyan)';
+  const id = `pc-token-${color}`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" style={{ flexShrink: 0 }}>
+      <defs>
+        <radialGradient id={id} cx="0.35" cy="0.3" r="0.9">
+          <stop offset="0" stopColor="white" stopOpacity="0.6" />
+          <stop offset="0.35" stopColor={c} stopOpacity="1" />
+          <stop offset="1" stopColor={c} stopOpacity="0.85" />
+        </radialGradient>
+      </defs>
+      <circle cx="20" cy="20" r="14" fill={`url(#${id})`} stroke="oklch(0 0 0 / 0.3)" strokeWidth="0.5" />
+      <ellipse cx="15.5" cy="18" rx="1.3" ry="1.7" fill="oklch(0.1 0.02 260)" />
+      <ellipse cx="24.5" cy="18" rx="1.3" ry="1.7" fill="oklch(0.1 0.02 260)" />
+      <path d="M15.5 23 Q20 25.5 24.5 23" stroke="oklch(0.1 0.02 260)" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+      <ellipse cx="14.5" cy="14.5" rx="2" ry="1.3" fill="white" opacity="0.5" />
+    </svg>
+  );
+}
 
 interface PlayerCardProps {
   player: Player;
@@ -13,99 +42,70 @@ interface PlayerCardProps {
 }
 
 export default function PlayerCard({ player, properties, isCurrentTurn, isMe }: PlayerCardProps) {
-  const colorHex = PLAYER_COLOR_MAP[player.color]?.hex ?? '#fff';
+  const neon = NEON[player.color] || 'var(--neon-cyan)';
   const owned = properties.filter((p) => p.owner_id === player.id);
   const currentTile = TILES[player.position];
 
   return (
-    <motion.div
-      className="rounded-xl p-3 relative overflow-hidden"
+    <div
       style={{
-        background: isCurrentTurn
-          ? `linear-gradient(135deg, rgba(10,10,26,0.95), rgba(10,10,26,0.85))`
-          : 'rgba(10,10,26,0.6)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '9px 11px',
+        background: isCurrentTurn ? 'oklch(1 0 0 / 0.04)' : 'transparent',
         border: isCurrentTurn
-          ? `1px solid ${colorHex}66`
-          : '1px solid rgba(100,116,139,0.15)',
-        boxShadow: isCurrentTurn ? `0 0 20px ${colorHex}22` : 'none',
-        opacity: player.is_bankrupt ? 0.4 : 1,
+          ? `1px solid ${neon}`
+          : '1px solid var(--stroke-hairline)',
+        borderRadius: 'var(--r-lg)',
+        position: 'relative',
+        boxShadow: isCurrentTurn ? `0 0 20px oklch(from ${neon} l c h / 0.25)` : 'none',
+        opacity: player.is_bankrupt ? 0.35 : 1,
+        transition: 'all var(--dur-med) var(--ease-out)',
       }}
-      animate={isCurrentTurn ? { scale: [1, 1.01, 1] } : { scale: 1 }}
-      transition={{ repeat: isCurrentTurn ? Infinity : 0, duration: 2 }}
     >
-      {/* Active turn indicator */}
+      {/* Active indicator bar */}
       {isCurrentTurn && (
-        <motion.div
-          className="absolute top-0 left-0 right-0 h-0.5"
-          style={{ background: `linear-gradient(90deg, transparent, ${colorHex}, transparent)` }}
-          animate={{ opacity: [1, 0.4, 1] }}
-          transition={{ repeat: Infinity, duration: 1.5 }}
-        />
+        <div style={{
+          position: 'absolute',
+          left: -1, top: 11, bottom: 11, width: 3,
+          background: neon,
+          borderRadius: 2,
+          boxShadow: `0 0 10px ${neon}`,
+        }}/>
       )}
 
-      <div className="flex items-center gap-2">
-        {/* Token */}
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-          style={{
-            backgroundColor: colorHex,
-            color: '#000',
-            boxShadow: `0 0 8px ${colorHex}88`,
-          }}
-        >
-          {player.name.charAt(0).toUpperCase()}
-        </div>
+      <PlayerToken color={player.color} size={30} />
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
-            <p className="text-sm font-semibold text-white truncate">{player.name}</p>
-            {isMe && <span className="text-[9px] text-slate-500 shrink-0">(you)</span>}
-            {player.is_bankrupt && <span className="text-[9px] text-red-400">BANKRUPT</span>}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span
-              className="text-sm font-bold"
-              style={{ color: colorHex, textShadow: `0 0 6px ${colorHex}66` }}
-            >
-              {formatMoney(player.balance)}
-            </span>
-            {player.in_jail && <span className="text-[10px] text-amber-400">🔒 Jail</span>}
-          </div>
-        </div>
-      </div>
-
-      {/* Position */}
-      <div className="mt-2 flex items-center gap-1.5">
-        <span className="text-[10px] text-slate-500">At:</span>
-        <span className="text-[10px] text-slate-400">
-          {currentTile?.flag ?? ''} {currentTile?.name}
-        </span>
-      </div>
-
-      {/* Properties count */}
-      {owned.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {owned.slice(0, 6).map((p) => {
-            const t = TILES[p.tile_id];
-            return (
-              <span
-                key={p.id}
-                className="text-[9px] px-1 py-0.5 rounded"
-                style={{
-                  background: 'rgba(255,255,255,0.05)',
-                  color: '#94a3b8',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                }}
-              >
-                {t?.flag ?? t?.name.slice(0, 3)}
-              </span>
-            );
-          })}
-          {owned.length > 6 && (
-            <span className="text-[9px] text-slate-600">+{owned.length - 6}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {player.name}
+          </span>
+          {isMe && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', letterSpacing: '0.06em' }}>you</span>
+          )}
+          {player.is_bot && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--neon-violet)', letterSpacing: '0.04em' }}>bot</span>
+          )}
+          {player.is_bankrupt && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--danger)', letterSpacing: '0.04em' }}>bust</span>
           )}
         </div>
-      )}
-    </motion.div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+            {formatMoney(player.balance)}
+          </span>
+          {player.in_jail && !player.is_bankrupt && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-amber)', letterSpacing: '0.04em' }}>prison</span>
+          )}
+        </div>
+        {owned.length > 0 && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', marginTop: 2, letterSpacing: '0.02em' }}>
+            {owned.length} {owned.length === 1 ? 'property' : 'properties'}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

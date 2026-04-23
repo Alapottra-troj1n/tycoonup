@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '{print $NF}')",
+      "Bash(mkdir -p /tmp/tycoon-handoff)",
+      "Bash(unzip -o TycoonUP-handoff.zip -d /tmp/tycoon-handoff)",
+      "Bash(npx tsc *)",
+      "Bash(npm install *)"
+    ]
+  }
+}

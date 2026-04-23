@@ -1,14 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { GameRoom, Player, Property } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
-import {
-  rollDice,
-  endTurn,
-  payJailFine,
-} from '@/app/actions/game';
+import { rollDice, endTurn, payJailFine } from '@/app/actions/game';
 import PropertyManager from './PropertyManager';
 
 interface ActionPanelProps {
@@ -19,19 +15,66 @@ interface ActionPanelProps {
   allPlayers: Player[];
 }
 
-export default function ActionPanel({
-  room,
-  myPlayer,
-  isMyTurn,
-  properties,
-  allPlayers,
-}: ActionPanelProps) {
+function ActionBtn({
+  children, onClick, disabled, variant = 'primary', fullWidth, color,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'end';
+  fullWidth?: boolean;
+  color?: string;
+}) {
+  const accentColor = color || 'var(--neon-cyan)';
+  const bg = variant === 'primary'
+    ? `linear-gradient(180deg, ${accentColor} 0%, oklch(from ${accentColor} calc(l * 0.82) c h) 100%)`
+    : variant === 'end'
+    ? 'var(--bg-raised)'
+    : 'var(--bg-raised)';
+  const textColor = variant === 'primary' ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)';
+  const border = variant === 'primary' ? 'none' : `1px solid var(--stroke-soft)`;
+  const shadow = variant === 'primary' && !disabled
+    ? `0 4px 16px oklch(from ${accentColor} l c h / 0.4), inset 0 1px 0 oklch(1 0 0 / 0.25)`
+    : 'none';
+
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        width: fullWidth ? '100%' : 'auto',
+        padding: '10px 14px',
+        borderRadius: 'var(--r-md)',
+        fontFamily: 'var(--font-display)',
+        fontWeight: 600,
+        fontSize: 12,
+        letterSpacing: '-0.01em',
+        background: bg,
+        color: textColor,
+        border,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+        boxShadow: shadow,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        transition: 'all var(--dur-fast) var(--ease-out)',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function ActionPanel({ room, myPlayer, isMyTurn, properties, allPlayers }: ActionPanelProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showProps, setShowProps] = useState(false);
 
   const pending = room.pending_action;
   const doublesTurn = room.doubles_turn ?? false;
+  const myOwnedCount = properties.filter((p) => p.owner_id === myPlayer.id).length;
 
   async function withLoad(fn: () => Promise<{ success: boolean; error?: string }>) {
     setLoading(true);
@@ -43,8 +86,6 @@ export default function ActionPanel({
       setLoading(false);
     }
   }
-
-  const myOwnedCount = properties.filter((p) => p.owner_id === myPlayer.id).length;
 
   return (
     <>
@@ -60,173 +101,133 @@ export default function ActionPanel({
         )}
       </AnimatePresence>
 
-      <motion.div
-        className="rounded-xl p-4 flex flex-col gap-3"
-        style={{
-          background: isMyTurn ? 'rgba(10,10,26,0.9)' : 'rgba(10,10,26,0.6)',
-          border: isMyTurn
-            ? '1px solid rgba(0,245,255,0.25)'
-            : '1px solid rgba(100,100,150,0.15)',
-          backdropFilter: 'blur(16px)',
-          boxShadow: isMyTurn ? '0 0 30px rgba(0,245,255,0.06)' : 'none',
-        }}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        {/* Header row */}
-        <div className="flex items-center justify-between">
-          <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide">
-            {isMyTurn ? 'Your Turn' : 'Waiting…'}
-          </p>
-          <div className="flex items-center gap-2">
-            <p className="text-cyan-400 text-sm font-bold" style={{ textShadow: '0 0 8px #00f5ff' }}>
+      <div style={{
+        background: 'var(--bg-glass-strong)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
+        border: isMyTurn ? '1px solid var(--neon-cyan)' : '1px solid var(--stroke-hairline)',
+        borderRadius: 'var(--r-lg)',
+        boxShadow: isMyTurn ? 'var(--glow-cyan)' : 'var(--shadow-sm)',
+        overflow: 'hidden',
+        transition: 'border-color var(--dur-med), box-shadow var(--dur-med)',
+      }}>
+        {/* Header */}
+        <div style={{ padding: '11px 14px 9px', borderBottom: '1px solid var(--stroke-hairline)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {isMyTurn && <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neon-cyan)', boxShadow: '0 0 6px var(--neon-cyan)' }}/>}
+            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: isMyTurn ? 'var(--neon-cyan)' : 'var(--text-muted)' }}>
+              {isMyTurn ? 'Your turn' : 'Waiting…'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>
               {formatMoney(myPlayer.balance)}
-            </p>
+            </span>
             {myOwnedCount > 0 && (
               <button
                 onClick={() => setShowProps(true)}
-                className="px-2 py-1 rounded-lg text-[10px] font-semibold transition-all"
                 style={{
-                  background: 'rgba(0,245,255,0.07)',
-                  color: '#00f5ff',
-                  border: '1px solid rgba(0,245,255,0.15)',
+                  padding: '3px 8px', borderRadius: 'var(--r-pill)',
+                  fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600,
+                  background: 'var(--bg-raised)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--stroke-soft)',
+                  cursor: 'pointer', letterSpacing: '0.04em',
                 }}
               >
-                🏠 {myOwnedCount}
+                {myOwnedCount} prop{myOwnedCount !== 1 ? 's' : ''}
               </button>
             )}
           </div>
         </div>
 
-        {!isMyTurn && (
-          <p className="text-slate-600 text-xs text-center">
-            {myPlayer.in_jail ? '🔒 You are in Jail' : 'Waiting for your turn…'}
-          </p>
-        )}
+        {/* Actions */}
+        <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {!isMyTurn && (
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', textAlign: 'center', letterSpacing: '0.06em' }}>
+              {myPlayer.in_jail ? 'You are in prison' : 'Waiting for your turn…'}
+            </p>
+          )}
 
-        {error && (
-          <p className="text-red-400 text-xs bg-red-900/20 rounded px-2 py-1">{error}</p>
-        )}
+          {error && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)', background: 'oklch(0.68 0.22 25 / 0.1)', border: '1px solid oklch(0.68 0.22 25 / 0.25)', borderRadius: 'var(--r-sm)', padding: '6px 10px' }}>
+              {error}
+            </div>
+          )}
 
-        {isMyTurn && (
-          <>
-            {/* ROLL phase */}
-            {room.turn_phase === 'roll' && (
-              <div className="flex flex-col gap-2">
-                {myPlayer.in_jail && (
-                  <p className="text-amber-400 text-xs">
-                    🔒 In Jail — roll doubles to escape or pay {formatMoney(50)} bail.
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <motion.button
-                    disabled={loading}
-                    onClick={() => withLoad(() => rollDice(room.id, myPlayer.id))}
-                    className="flex-1 py-2.5 rounded-lg font-bold text-sm disabled:opacity-50"
-                    style={{
-                      background: 'linear-gradient(135deg, #0077aa, #00bcd4)',
-                      color: '#fff',
-                      boxShadow: loading ? 'none' : '0 0 15px rgba(0,245,255,0.3)',
-                    }}
-                    whileHover={!loading ? { scale: 1.01 } : {}}
-                    whileTap={!loading ? { scale: 0.98 } : {}}
-                  >
-                    {loading ? 'Rolling…' : '🎲 Roll Dice'}
-                  </motion.button>
+          {isMyTurn && (
+            <>
+              {/* ROLL phase */}
+              {room.turn_phase === 'roll' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {myPlayer.in_jail && (
-                    <button
-                      disabled={loading || myPlayer.balance < 50}
-                      onClick={() => withLoad(() => payJailFine(room.id, myPlayer.id))}
-                      className="px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-40"
-                      style={{
-                        background: 'rgba(255,170,0,0.12)',
-                        color: '#ffcc00',
-                        border: '1px solid rgba(255,204,0,0.2)',
-                      }}
-                    >
-                      Pay $50
-                    </button>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-amber)', letterSpacing: '0.04em' }}>
+                      In prison — roll doubles to escape or pay {formatMoney(50)}
+                    </div>
                   )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <ActionBtn
+                      variant="primary"
+                      color="var(--neon-cyan)"
+                      disabled={loading}
+                      onClick={() => withLoad(() => rollDice(room.id, myPlayer.id))}
+                      fullWidth
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="16" cy="8" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="8" cy="16" r="1.2" fill="currentColor"/><circle cx="16" cy="16" r="1.2" fill="currentColor"/></svg>
+                      {loading ? 'Rolling…' : 'Roll dice'}
+                    </ActionBtn>
+                    {myPlayer.in_jail && (
+                      <ActionBtn
+                        variant="ghost"
+                        disabled={loading || myPlayer.balance < 50}
+                        onClick={() => withLoad(() => payJailFine(room.id, myPlayer.id))}
+                      >
+                        Pay $50
+                      </ActionBtn>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* BUY OFFER is handled by BuyOfferModal — nothing to show here during action phase */}
-            {room.turn_phase === 'action' && pending?.type === 'buy_offer' && (
-              <div
-                className="rounded-lg p-3 text-center"
-                style={{ background: 'rgba(0,200,100,0.05)', border: '1px solid rgba(0,200,100,0.15)' }}
-              >
-                <p className="text-green-400 text-xs font-semibold">
-                  💡 Buy offer dialog is open
-                </p>
-              </div>
-            )}
-
-            {/* PAY RENT — informational */}
-            {pending?.type === 'pay_rent' && (
-              <div
-                className="rounded-lg p-3"
-                style={{ background: 'rgba(255,50,50,0.07)', border: '1px solid rgba(255,50,50,0.18)' }}
-              >
-                <p className="text-red-400 text-sm font-semibold">
+              {/* Informational states during action phase */}
+              {room.turn_phase === 'action' && pending?.type === 'buy_offer' && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--success)', letterSpacing: '0.04em', textAlign: 'center' }}>
+                  Purchase dialog open
+                </div>
+              )}
+              {pending?.type === 'pay_rent' && (
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--danger)' }}>
                   Rent paid: {formatMoney(pending.amount ?? 0)}
-                </p>
-              </div>
-            )}
+                </div>
+              )}
+              {pending?.type === 'event_result' && (
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--neon-amber)', lineHeight: 1.45 }}>
+                  {pending.message}
+                </div>
+              )}
+              {pending?.type === 'tax_paid' && (
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--danger)' }}>
+                  Tax paid: {formatMoney(pending.amount ?? 0)}
+                </div>
+              )}
 
-            {/* EVENT RESULT — informational */}
-            {pending?.type === 'event_result' && (
-              <div
-                className="rounded-lg p-3"
-                style={{ background: 'rgba(255,200,0,0.06)', border: '1px solid rgba(255,200,0,0.15)' }}
-              >
-                <p className="text-amber-300 text-xs">{pending.message}</p>
-              </div>
-            )}
-
-            {/* TAX PAID — informational */}
-            {pending?.type === 'tax_paid' && (
-              <div
-                className="rounded-lg p-3"
-                style={{ background: 'rgba(255,50,50,0.07)', border: '1px solid rgba(255,50,50,0.18)' }}
-              >
-                <p className="text-red-400 text-sm">Tax paid: {formatMoney(pending.amount ?? 0)}</p>
-              </div>
-            )}
-
-            {/* END TURN / DOUBLES ROLL */}
-            {room.turn_phase === 'end' && pending?.type !== 'chest_quiz' && pending?.type !== 'auction' && (
-              <motion.button
-                disabled={loading}
-                onClick={() => withLoad(() => endTurn(room.id, myPlayer.id))}
-                className="w-full py-2.5 rounded-lg font-bold text-sm disabled:opacity-50"
-                style={
-                  doublesTurn
-                    ? {
-                        background: 'linear-gradient(135deg, #005500, #00aa44)',
-                        color: '#00ff88',
-                        border: '1px solid rgba(0,255,136,0.25)',
-                        boxShadow: '0 0 14px rgba(0,255,136,0.15)',
-                      }
-                    : {
-                        background: 'linear-gradient(135deg, #2d1b69, #4c3d8f)',
-                        color: '#c4b5fd',
-                        border: '1px solid rgba(139,92,246,0.3)',
-                        boxShadow: '0 0 10px rgba(139,92,246,0.15)',
-                      }
-                }
-                whileHover={!loading ? { scale: 1.01 } : {}}
-                whileTap={!loading ? { scale: 0.98 } : {}}
-              >
-                {loading
-                  ? doublesTurn ? 'Rolling again…' : 'Ending…'
-                  : doublesTurn ? '🎲 Roll Again (Doubles!)' : 'End Turn →'}
-              </motion.button>
-            )}
-          </>
-        )}
-      </motion.div>
+              {/* END TURN */}
+              {room.turn_phase === 'end' && pending?.type !== 'chest_quiz' && pending?.type !== 'auction' && (
+                <ActionBtn
+                  variant={doublesTurn ? 'primary' : 'secondary'}
+                  color={doublesTurn ? 'var(--neon-lime)' : undefined}
+                  disabled={loading}
+                  onClick={() => withLoad(() => endTurn(room.id, myPlayer.id))}
+                  fullWidth
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                  {loading ? (doublesTurn ? 'Rolling…' : 'Ending…') : (doublesTurn ? 'Roll again (doubles)' : 'End turn')}
+                </ActionBtn>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </>
   );
 }

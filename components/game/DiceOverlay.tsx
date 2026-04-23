@@ -9,69 +9,75 @@ interface DiceOverlayProps {
   playerName?: string;
 }
 
-const DOTS: Record<number, number[][]> = {
-  1: [[1, 1]],
-  2: [[0, 0], [2, 2]],
-  3: [[0, 0], [1, 1], [2, 2]],
-  4: [[0, 0], [0, 2], [2, 0], [2, 2]],
-  5: [[0, 0], [0, 2], [1, 1], [2, 0], [2, 2]],
-  6: [[0, 0], [1, 0], [2, 0], [0, 2], [1, 2], [2, 2]],
+const DOTS: Record<number, [number, number][]> = {
+  1: [[0.5,0.5]],
+  2: [[0.28,0.28],[0.72,0.72]],
+  3: [[0.28,0.28],[0.5,0.5],[0.72,0.72]],
+  4: [[0.28,0.28],[0.72,0.28],[0.28,0.72],[0.72,0.72]],
+  5: [[0.28,0.28],[0.72,0.28],[0.5,0.5],[0.28,0.72],[0.72,0.72]],
+  6: [[0.28,0.28],[0.72,0.28],[0.28,0.5],[0.72,0.5],[0.28,0.72],[0.72,0.72]],
 };
 
-function Die({ value, spinning }: { value: number; spinning: boolean }) {
+function DieFace({ value, spinning }: { value: number; spinning: boolean }) {
   const [display, setDisplay] = useState(value);
+  const id = `die-${value}-${spinning}`;
 
   useEffect(() => {
-    if (!spinning) {
-      setDisplay(value);
-      return;
-    }
+    if (!spinning) { setDisplay(value); return; }
     let count = 0;
-    const interval = setInterval(() => {
-      setDisplay(Math.floor(Math.random() * 6) + 1);
-      count++;
-      if (count > 14) clearInterval(interval);
-    }, 80);
-    return () => clearInterval(interval);
+    const iv = setInterval(() => {
+      setDisplay(Math.ceil(Math.random() * 6));
+      if (++count > 16) clearInterval(iv);
+    }, 75);
+    return () => clearInterval(iv);
   }, [spinning, value]);
 
   return (
     <motion.div
-      className="relative w-16 h-16 rounded-xl"
-      style={{
-        background: 'linear-gradient(135deg, #1a1a2e, #16213e)',
-        border: '2px solid rgba(0,245,255,0.4)',
-        boxShadow: spinning
-          ? '0 0 20px rgba(0,245,255,0.6), inset 0 0 10px rgba(0,245,255,0.1)'
-          : '0 0 10px rgba(0,245,255,0.3)',
-      }}
-      animate={spinning ? { rotate: [0, 15, -15, 10, -10, 5, -5, 0] } : { rotate: 0 }}
-      transition={{ duration: 1.2, ease: 'easeOut' }}
+      animate={spinning ? { rotate: [0, 12, -12, 8, -8, 4, -4, 0] } : { rotate: 0 }}
+      transition={{ duration: 1.1, ease: 'easeOut' }}
+      style={{ filter: 'drop-shadow(0 4px 16px oklch(0 0 0 / 0.5))' }}
     >
-      <div className="absolute inset-2 grid grid-cols-3 grid-rows-3">
-        {(DOTS[display] ?? []).map(([r, c], i) => (
-          <div
-            key={i}
-            className="flex items-center justify-center"
-            style={{ gridRow: r + 1, gridColumn: c + 1 }}
-          >
-            <div
-              className="w-2.5 h-2.5 rounded-full"
-              style={{
-                backgroundColor: '#00f5ff',
-                boxShadow: '0 0 4px #00f5ff',
-              }}
-            />
-          </div>
+      <svg width="72" height="72" viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id={`dg-${id}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="oklch(0.98 0.005 260)"/>
+            <stop offset="1" stopColor="oklch(0.88 0.01 260)"/>
+          </linearGradient>
+        </defs>
+        <rect x="4" y="4" width="56" height="56" rx="12" fill={`url(#dg-${id})`} stroke="oklch(0.75 0.01 260)" strokeWidth="0.5"/>
+        {(DOTS[display] ?? []).map((d, i) => (
+          <circle key={i} cx={d[0]*64} cy={d[1]*64} r="5" fill="oklch(0.14 0.02 260)"/>
         ))}
-      </div>
+      </svg>
     </motion.div>
   );
 }
 
-export default function DiceOverlay({ roll, animating, playerName }: DiceOverlayProps) {
-  if (!roll && !animating) return null;
+function PlayerTokenMini({ color }: { color: string }) {
+  const NEON: Record<string, string> = {
+    cyan:'var(--neon-cyan)', magenta:'var(--neon-magenta)', lime:'var(--neon-lime)',
+    amber:'var(--neon-amber)', violet:'var(--neon-violet)', rose:'var(--neon-rose)',
+  };
+  const c = NEON[color] || 'var(--neon-cyan)';
+  return (
+    <svg width="18" height="18" viewBox="0 0 40 40">
+      <defs>
+        <radialGradient id="do-tg" cx="0.35" cy="0.3" r="0.9">
+          <stop offset="0" stopColor="white" stopOpacity="0.6"/>
+          <stop offset="0.35" stopColor={c} stopOpacity="1"/>
+          <stop offset="1" stopColor={c} stopOpacity="0.85"/>
+        </radialGradient>
+      </defs>
+      <circle cx="20" cy="20" r="13" fill="url(#do-tg)"/>
+      <ellipse cx="15.5" cy="18" rx="1.3" ry="1.7" fill="oklch(0.1 0.02 260)"/>
+      <ellipse cx="24.5" cy="18" rx="1.3" ry="1.7" fill="oklch(0.1 0.02 260)"/>
+      <path d="M15.5 23 Q20 25.5 24.5 23" stroke="oklch(0.1 0.02 260)" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+    </svg>
+  );
+}
 
+export default function DiceOverlay({ roll, animating, playerName }: DiceOverlayProps) {
   const d1 = roll?.[0] ?? 1;
   const d2 = roll?.[1] ?? 1;
 
@@ -79,47 +85,82 @@ export default function DiceOverlay({ roll, animating, playerName }: DiceOverlay
     <AnimatePresence>
       {(roll || animating) && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.25 }}
         >
           <motion.div
-            className="flex flex-col items-center gap-4 px-10 py-8 rounded-2xl"
             style={{
-              background: 'rgba(10,10,26,0.9)',
-              border: '1px solid rgba(0,245,255,0.3)',
-              backdropFilter: 'blur(20px)',
-              boxShadow: '0 0 60px rgba(0,245,255,0.15)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20,
+              padding: '28px 36px',
+              background: 'var(--bg-glass-strong)',
+              backdropFilter: 'blur(20px) saturate(1.3)',
+              WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
+              border: '1px solid var(--stroke-soft)',
+              borderRadius: 'var(--r-2xl)',
+              boxShadow: 'var(--shadow-xl)',
             }}
-            initial={{ scale: 0.6, y: 20 }}
+            initial={{ scale: 0.75, y: 20 }}
             animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.8, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            exit={{ scale: 0.85, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 22 }}
           >
+            {/* Player indicator */}
             {playerName && (
-              <p className="text-slate-400 text-sm font-medium tracking-wide">
-                {playerName} is rolling…
-              </p>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 12px',
+                background: 'var(--bg-raised)',
+                border: '1px solid var(--stroke-soft)',
+                borderRadius: 'var(--r-pill)',
+                fontFamily: 'var(--font-mono)', fontSize: 10,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)',
+              }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--neon-cyan)', boxShadow: '0 0 6px var(--neon-cyan)' }}/>
+                {playerName} rolling
+              </div>
             )}
-            <div className="flex gap-6">
-              <Die value={d1} spinning={animating} />
-              <Die value={d2} spinning={animating} />
+
+            {/* Dice */}
+            <div style={{ display: 'flex', gap: 20 }}>
+              <DieFace value={d1} spinning={animating} />
+              <DieFace value={d2} spinning={animating} />
             </div>
+
+            {/* Result */}
             {!animating && roll && (
-              <motion.p
-                className="text-white font-bold text-lg"
+              <motion.div
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                style={{ textShadow: '0 0 10px rgba(0,245,255,0.6)' }}
+                transition={{ delay: 0.15 }}
               >
-                Total: {d1 + d2}
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+                  <span style={{ color: 'var(--neon-cyan)' }}>{d1}</span>
+                  <span style={{ color: 'var(--text-muted)', margin: '0 8px', fontWeight: 400 }}>+</span>
+                  <span style={{ color: 'var(--neon-cyan)' }}>{d2}</span>
+                  <span style={{ color: 'var(--text-muted)', margin: '0 8px', fontWeight: 400 }}>=</span>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{d1 + d2}</span>
+                </div>
                 {d1 === d2 && (
-                  <span className="ml-2 text-yellow-400 text-sm">Doubles!</span>
+                  <div style={{
+                    padding: '3px 10px', borderRadius: 'var(--r-pill)',
+                    background: 'oklch(0.82 0.17 75 / 0.15)',
+                    border: '1px solid oklch(0.82 0.17 75 / 0.4)',
+                    fontFamily: 'var(--font-mono)', fontSize: 10,
+                    color: 'var(--neon-amber)', letterSpacing: '0.08em',
+                  }}>
+                    Doubles!
+                  </div>
                 )}
-              </motion.p>
+              </motion.div>
             )}
           </motion.div>
         </motion.div>

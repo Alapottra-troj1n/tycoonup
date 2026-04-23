@@ -22,15 +22,17 @@ export type CountrySet =
 
 export interface Tile {
   id: number;
-  name: string;
+  name: string;       // City name for 'country' tiles, otherwise tile name
   type: TileType;
   set?: CountrySet;
+  country?: string;   // Parent country name (for city tiles)
   buyPrice?: number;
   rentLevels?: number[];
   upgradePrice?: number;
   mortgageValue?: number;
-  advantage?: string;
+  advantage?: string; // DEPRECATED on tiles; now lives in SET_ADVANTAGES
   taxAmount?: number;
+  taxType?: 'flat' | 'percent'; // 'percent' = 10% of player balance
   flag?: string;
 }
 

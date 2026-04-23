@@ -5,14 +5,23 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { EventLogEntry } from '@/lib/types';
 
 const TYPE_COLORS: Record<string, string> = {
-  move:   '#94a3b8',
-  buy:    '#00ff88',
-  rent:   '#ff7700',
-  tax:    '#ff4444',
-  chest:  '#00d4ff',
-  event:  '#ffcc00',
-  jail:   '#ff00ff',
-  system: '#64748b',
+  move:   'var(--text-muted)',
+  buy:    'var(--success)',
+  rent:   'var(--neon-amber)',
+  tax:    'var(--danger)',
+  chest:  'var(--neon-cyan)',
+  event:  'var(--neon-magenta)',
+  jail:   'var(--neon-violet)',
+  system: 'var(--text-faint)',
+};
+
+const TYPE_BORDER: Record<string, string> = {
+  buy:   'var(--success)',
+  rent:  'var(--neon-amber)',
+  tax:   'var(--danger)',
+  chest: 'var(--neon-cyan)',
+  event: 'var(--neon-magenta)',
+  jail:  'var(--neon-violet)',
 };
 
 interface EventLogProps {
@@ -27,45 +36,60 @@ export default function EventLog({ entries }: EventLogProps) {
   }, [entries.length]);
 
   return (
-    <div
-      className="flex flex-col h-full rounded-xl overflow-hidden"
-      style={{
-        background: 'rgba(6,9,18,0.85)',
-        border: '1px solid rgba(100,116,139,0.2)',
-        backdropFilter: 'blur(12px)',
-      }}
-    >
-      <div
-        className="px-3 py-2 border-b"
-        style={{ borderColor: 'rgba(100,116,139,0.15)' }}
-      >
-        <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest">
-          Event Log
-        </p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{
+        padding: '12px 14px 8px',
+        borderBottom: '1px solid var(--stroke-hairline)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: 0,
+      }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>
+          Event log
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 6px var(--success)' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>live</span>
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5 scrollbar-thin">
+
+      {/* Log entries */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
         <AnimatePresence initial={false}>
-          {entries.map((entry) => (
-            <motion.div
-              key={entry.id}
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="flex gap-2 items-start"
-            >
-              <span
-                className="shrink-0 w-1.5 h-1.5 rounded-full mt-1.5"
-                style={{ backgroundColor: TYPE_COLORS[entry.type] ?? '#555' }}
-              />
-              <p
-                className="text-xs leading-relaxed"
-                style={{ color: TYPE_COLORS[entry.type] ?? '#94a3b8' }}
+          {entries.map((entry) => {
+            const borderColor = TYPE_BORDER[entry.type];
+            return (
+              <motion.div
+                key={entry.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'baseline',
+                  padding: '7px 14px',
+                  borderLeft: borderColor ? `2px solid ${borderColor}` : '2px solid transparent',
+                  background: borderColor ? `oklch(from ${borderColor} l c h / 0.05)` : 'transparent',
+                }}
               >
-                {entry.message}
-              </p>
-            </motion.div>
-          ))}
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', flexShrink: 0, minWidth: 28 }}>
+                  {new Date(entry.timestamp).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </span>
+                <span style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 11,
+                  lineHeight: 1.5,
+                  color: TYPE_COLORS[entry.type] ?? 'var(--text-secondary)',
+                }}>
+                  {entry.message}
+                </span>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
         <div ref={bottomRef} />
       </div>

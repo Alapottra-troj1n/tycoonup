@@ -19,6 +19,28 @@ import WinScreen from './WinScreen';
 import TileDetailModal from './TileDetailModal';
 import BuyOfferModal from './BuyOfferModal';
 
+const NEON: Record<string, string> = {
+  cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
+  amber: 'var(--neon-amber)', violet: 'var(--neon-violet)', rose: 'var(--neon-rose)',
+};
+
+function TULogo() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 40 40" fill="none">
+      <defs>
+        <linearGradient id="grc-lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="var(--neon-lime)"/>
+          <stop offset="0.5" stopColor="var(--neon-cyan)"/>
+          <stop offset="1" stopColor="var(--neon-magenta)"/>
+        </linearGradient>
+      </defs>
+      <rect x="4" y="4" width="32" height="32" rx="8" fill="url(#grc-lg)" opacity="0.15"/>
+      <rect x="4" y="4" width="32" height="32" rx="8" stroke="url(#grc-lg)" strokeWidth="1.5" fill="none"/>
+      <text x="20" y="26" textAnchor="middle" fontFamily="var(--font-display)" fontWeight="700" fontSize="16" fill="url(#grc-lg)">T</text>
+    </svg>
+  );
+}
+
 interface GameRoomClientProps {
   initialRoom: GameRoom;
   initialPlayers: Player[];
@@ -40,15 +62,13 @@ export default function GameRoomClient({
   } = useGameStore();
 
   const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
 
-  // ── Always-fresh players ref ──
-  // Updated every render so bot effect never reads a stale player list.
   const playersRef = useRef<Player[]>(initialPlayers);
   useEffect(() => {
     playersRef.current = players.length > 0 ? players : initialPlayers;
   });
 
-  // ── Init store ──
   useEffect(() => {
     setRoom(initialRoom);
     setPlayers(initialPlayers);
@@ -56,39 +76,23 @@ export default function GameRoomClient({
     setMyPlayerId(myPlayerId);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Realtime subscription ──
   const setupRealtime = useCallback(() => {
     const supabase = getSupabaseClient();
     if (!supabase) return () => {};
-
     const channel = supabase
       .channel(`room-${initialRoom.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'game_rooms', filter: `id=eq.${initialRoom.id}` },
-        (payload) => { if (payload.new) setRoom(payload.new as GameRoom); },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'players', filter: `room_id=eq.${initialRoom.id}` },
-        (payload) => { if (payload.new) upsertPlayer(payload.new as Player); },
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'properties', filter: `room_id=eq.${initialRoom.id}` },
-        (payload) => { if (payload.new) upsertProperty(payload.new as Property); },
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `id=eq.${initialRoom.id}` },
+        (payload) => { if (payload.new) setRoom(payload.new as GameRoom); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `room_id=eq.${initialRoom.id}` },
+        (payload) => { if (payload.new) upsertPlayer(payload.new as Player); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'properties', filter: `room_id=eq.${initialRoom.id}` },
+        (payload) => { if (payload.new) upsertProperty(payload.new as Property); })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [initialRoom.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => setupRealtime(), [setupRealtime]);
 
-  // ── Re-sync players from DB when the turn advances ──
-  // After startGame shuffles turn_orders, CDC room event may arrive before
-  // all player CDCs. A fresh fetch ensures the client's sorted array matches
-  // what the server expects.
   const activeStatus = (room ?? initialRoom).status;
   const activeIdx    = (room ?? initialRoom).current_player_idx;
 
@@ -96,66 +100,33 @@ export default function GameRoomClient({
     if (activeStatus !== 'playing') return;
     const supabase = getSupabaseClient();
     if (!supabase) return;
-
-    supabase
-      .from('players')
-      .select('*')
-      .eq('room_id', initialRoom.id)
-      .order('turn_order')
-      .then(({ data }) => {
-        if (data && data.length > 0) setPlayers(data as Player[]);
-      });
+    supabase.from('players').select('*').eq('room_id', initialRoom.id).order('turn_order')
+      .then(({ data }) => { if (data && data.length > 0) setPlayers(data as Player[]); });
   }, [activeStatus, activeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Bot auto-play ──
-  // Uses playersRef so it never operates on a stale player list, while
-  // still only re-running when observable room state actually changes.
   useEffect(() => {
     const activeRoom = room ?? initialRoom;
     if (activeRoom.status !== 'playing') return;
-
-    const sortedPlayers = playersRef.current
-      .slice()
-      .sort((a, b) => a.turn_order - b.turn_order);
-
+    const sortedPlayers = playersRef.current.slice().sort((a, b) => a.turn_order - b.turn_order);
     const currentPlayer = sortedPlayers[activeRoom.current_player_idx];
     if (!currentPlayer?.is_bot) return;
-
     const pending = activeRoom.pending_action;
     let timer: ReturnType<typeof setTimeout>;
-
     if (activeRoom.turn_phase === 'roll') {
-      timer = setTimeout(
-        () => rollDice(activeRoom.id, currentPlayer.id).catch(() => {}),
-        1000 + Math.random() * 700,
-      );
+      timer = setTimeout(() => rollDice(activeRoom.id, currentPlayer.id).catch(() => {}), 1000 + Math.random() * 700);
     } else if (activeRoom.turn_phase === 'action') {
       if (pending?.type === 'buy_offer' && pending.player_id === currentPlayer.id) {
         timer = setTimeout(() => {
           const canAfford = currentPlayer.balance >= (pending.price ?? 0);
-          if (canAfford) {
-            buyProperty(activeRoom.id, currentPlayer.id, pending.tile_id!).catch(() => {});
-          } else {
-            skipBuy(activeRoom.id, currentPlayer.id).catch(() => {});
-          }
+          if (canAfford) buyProperty(activeRoom.id, currentPlayer.id, pending.tile_id!).catch(() => {});
+          else skipBuy(activeRoom.id, currentPlayer.id).catch(() => {});
         }, 700);
       } else if (pending?.type === 'chest_quiz' && pending.player_id === currentPlayer.id) {
-        timer = setTimeout(() => {
-          answerChestQuestion(
-            activeRoom.id,
-            currentPlayer.id,
-            Math.floor(Math.random() * 4),
-          ).catch(() => {});
-        }, 1200);
+        timer = setTimeout(() => answerChestQuestion(activeRoom.id, currentPlayer.id, Math.floor(Math.random() * 4)).catch(() => {}), 1200);
       }
-      // auction: let the timer expire naturally
     } else if (activeRoom.turn_phase === 'end' && pending?.type !== 'auction') {
-      timer = setTimeout(
-        () => endTurn(activeRoom.id, currentPlayer.id).catch(() => {}),
-        600,
-      );
+      timer = setTimeout(() => endTurn(activeRoom.id, currentPlayer.id).catch(() => {}), 600);
     }
-
     return () => clearTimeout(timer);
   }, [
     (room ?? initialRoom).status,
@@ -165,95 +136,68 @@ export default function GameRoomClient({
     (room ?? initialRoom).pending_action?.player_id,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Derived state ──
   const activeRoom       = room ?? initialRoom;
-  const activePlayers    = (players.length > 0 ? players : initialPlayers)
-    .slice()
-    .sort((a, b) => a.turn_order - b.turn_order);
+  const activePlayers    = (players.length > 0 ? players : initialPlayers).slice().sort((a, b) => a.turn_order - b.turn_order);
   const activeProperties = properties.length > 0 ? properties : initialProperties;
+  const myPlayer         = activePlayers.find((p) => p.id === myPlayerId) ?? null;
+  const currentPlayer    = activePlayers[activeRoom.current_player_idx] ?? null;
+  const isMyTurn         = currentPlayer?.id === myPlayerId;
 
-  const myPlayer      = activePlayers.find((p) => p.id === myPlayerId) ?? null;
-  const currentPlayer = activePlayers[activeRoom.current_player_idx] ?? null;
-  const isMyTurn      = currentPlayer?.id === myPlayerId;
-
-  // ── Lobby ──
   if (activeRoom.status === 'lobby') {
     return <Lobby room={activeRoom} players={activePlayers} myPlayerId={myPlayerId} />;
   }
 
-  // ── Win screen ──
   if (activeRoom.status === 'finished') {
-    return (
-      <WinScreen
-        players={activePlayers}
-        properties={activeProperties}
-        myPlayerId={myPlayerId}
-      />
-    );
+    return <WinScreen players={activePlayers} properties={activeProperties} myPlayerId={myPlayerId} />;
   }
 
-  const pending = activeRoom.pending_action;
+  const pending          = activeRoom.pending_action;
   const isChestActive    = pending?.type === 'chest_quiz' && !!pending.question;
   const isChestForMe     = pending?.player_id === myPlayerId;
   const isAuctionActive  = pending?.type === 'auction';
-  const isBuyOfferActive = (
-    pending?.type === 'buy_offer' &&
-    isMyTurn &&
-    !!myPlayer &&
-    !myPlayer.is_bankrupt &&
-    pending.tile_id !== undefined
-  );
+  const isBuyOfferActive = pending?.type === 'buy_offer' && isMyTurn && !!myPlayer && !myPlayer.is_bankrupt && pending.tile_id !== undefined;
+  const currentNeon      = NEON[currentPlayer?.color ?? 'cyan'] ?? 'var(--neon-cyan)';
 
-  // Phase label for top bar
   const phaseLabel = (() => {
-    if (!isMyTurn) return null;
-    if (activeRoom.doubles_turn) return '🎲 Doubles! Roll again';
-    if (activeRoom.turn_phase === 'roll') return '🎲 Roll the dice';
-    if (activeRoom.turn_phase === 'action' && pending?.type === 'buy_offer') return '🏠 Buy or Auction?';
-    if (activeRoom.turn_phase === 'action') return '⌛ Waiting…';
-    if (activeRoom.turn_phase === 'end') return '✅ End your turn';
-    return null;
+    if (activeRoom.doubles_turn) return 'Doubles — roll again';
+    if (activeRoom.turn_phase === 'roll') return 'Roll the dice';
+    if (activeRoom.turn_phase === 'action' && pending?.type === 'buy_offer') return 'Buy or Auction?';
+    if (activeRoom.turn_phase === 'action') return 'Processing…';
+    if (activeRoom.turn_phase === 'end') return 'End turn';
+    return '';
   })();
 
+  function copyCode() {
+    navigator.clipboard.writeText(activeRoom.room_code).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    });
+  }
+
+  const sidebarStyle: React.CSSProperties = {
+    background: 'var(--bg-glass-strong)',
+    backdropFilter: 'blur(14px)',
+    WebkitBackdropFilter: 'blur(14px)',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    flexShrink: 0,
+  };
+
   return (
-    <div
-      className="h-screen flex flex-col overflow-hidden"
-      style={{ background: 'radial-gradient(ellipse at 50% 0%, #0a1020 0%, #060912 70%)' }}
-    >
+    <div className="tu-backdrop" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       {/* ── Overlays ── */}
-      <DiceOverlay
-        roll={lastDiceRoll}
-        animating={diceAnimating}
-        playerName={diceAnimating ? currentPlayer?.name : undefined}
-      />
+      <DiceOverlay roll={lastDiceRoll} animating={diceAnimating} playerName={diceAnimating ? currentPlayer?.name : undefined} />
 
       {isChestActive && myPlayer && (
-        <ChestModal
-          room={activeRoom}
-          playerId={myPlayerId}
-          question={pending!.question!}
-          isActivePlayer={isChestForMe}
-        />
+        <ChestModal room={activeRoom} playerId={myPlayerId} question={pending!.question!} isActivePlayer={isChestForMe} />
       )}
-
       {isAuctionActive && myPlayer && (
-        <AuctionModal
-          room={activeRoom}
-          players={activePlayers}
-          myPlayer={myPlayer}
-        />
+        <AuctionModal room={activeRoom} players={activePlayers} myPlayer={myPlayer} />
       )}
-
-      {/* Buy offer — full-screen modal so it's impossible to miss */}
       {isBuyOfferActive && myPlayer && (
-        <BuyOfferModal
-          room={activeRoom}
-          myPlayer={myPlayer}
-          tileId={pending!.tile_id!}
-          price={pending!.price ?? 0}
-        />
+        <BuyOfferModal room={activeRoom} myPlayer={myPlayer} tileId={pending!.tile_id!} price={pending!.price ?? 0} />
       )}
-
       <TileDetailModal
         tile={selectedTile}
         property={selectedTile ? activeProperties.find((p) => p.tile_id === selectedTile.id) : undefined}
@@ -261,115 +205,156 @@ export default function GameRoomClient({
         onClose={() => setSelectedTile(null)}
       />
 
-      {/* ── Top HUD ── */}
-      <div
-        className="shrink-0 flex items-center gap-2 px-3 py-2 border-b"
-        style={{ borderColor: 'rgba(255,255,255,0.04)', background: 'rgba(0,0,0,0.25)' }}
-      >
-        {/* Turn indicator pill */}
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 min-w-0"
-          style={
-            isMyTurn
-              ? { background: 'rgba(0,245,255,0.1)', border: '1px solid rgba(0,245,255,0.3)', color: '#00f5ff' }
-              : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', color: '#475569' }
-          }
-        >
-          {isMyTurn ? (
-            <>
-              <span
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ background: '#00f5ff', boxShadow: '0 0 5px #00f5ff' }}
-              />
-              {phaseLabel ?? 'Your Turn'}
-            </>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: '#475569' }} />
-              {currentPlayer?.name
-                ? `${currentPlayer.name}${currentPlayer.is_bot ? ' 🤖' : ''}'s turn`
-                : '…'}
-            </>
-          )}
+      {/* ── Left sidebar ── */}
+      <div style={{ ...sidebarStyle, width: 230, borderRight: '1px solid var(--stroke-hairline)' }}>
+        {/* Logo bar */}
+        <div style={{
+          padding: '13px 16px 11px',
+          borderBottom: '1px solid var(--stroke-hairline)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          flexShrink: 0,
+        }}>
+          <TULogo />
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+            TycoonUP
+          </span>
         </div>
 
-        {/* Separator */}
-        <div className="w-px h-5 shrink-0" style={{ background: 'rgba(255,255,255,0.06)' }} />
+        {/* Room code */}
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--stroke-hairline)', flexShrink: 0 }}>
+          <div style={{ marginBottom: 6, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            Room code
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              flex: 1, padding: '7px 10px',
+              background: 'var(--bg-raised)',
+              border: '1px solid var(--stroke-soft)',
+              borderRadius: 'var(--r-md)',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 15,
+              color: 'var(--neon-cyan)', letterSpacing: '0.14em',
+            }}>
+              {activeRoom.room_code}
+            </div>
+            <button
+              onClick={copyCode}
+              style={{
+                padding: '7px 10px',
+                background: codeCopied ? 'oklch(0.78 0.18 150 / 0.15)' : 'var(--bg-raised)',
+                border: `1px solid ${codeCopied ? 'oklch(0.78 0.18 150 / 0.4)' : 'var(--stroke-soft)'}`,
+                borderRadius: 'var(--r-md)',
+                color: codeCopied ? 'var(--success)' : 'var(--text-secondary)',
+                cursor: 'pointer', fontSize: 11,
+                fontFamily: 'var(--font-mono)', fontWeight: 600,
+                transition: 'all var(--dur-fast) var(--ease-out)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {codeCopied ? '✓ Copied' : 'Copy'}
+            </button>
+          </div>
+        </div>
 
-        {/* Player balance chips — all players visible at a glance */}
-        <div className="flex items-center gap-2 flex-1 overflow-x-auto min-w-0">
-          {activePlayers.map((p) => {
-            const colorHex   = PLAYER_COLOR_MAP[p.color]?.hex ?? '#fff';
-            const isCurrent  = p.id === currentPlayer?.id;
-            const isMe       = p.id === myPlayerId;
-            return (
-              <div
-                key={p.id}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg shrink-0 transition-all"
-                style={{
-                  background: isCurrent ? `${colorHex}18` : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${isCurrent ? colorHex + '50' : 'rgba(255,255,255,0.06)'}`,
-                  opacity: p.is_bankrupt ? 0.35 : 1,
-                }}
-              >
-                <div
-                  className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black shrink-0"
-                  style={{ backgroundColor: colorHex, color: '#000' }}
-                >
-                  {p.name.charAt(0).toUpperCase()}
-                </div>
-                <span className="text-[11px] font-bold" style={{ color: colorHex }}>
-                  {formatMoney(p.balance)}
-                </span>
-                {isMe && (
-                  <span className="text-[8px] text-slate-600 font-normal">you</span>
-                )}
-                {p.is_bankrupt && (
-                  <span className="text-[8px] text-red-500 font-bold">BUST</span>
-                )}
-                {p.in_jail && !p.is_bankrupt && (
-                  <span className="text-[8px] text-amber-500">🔒</span>
-                )}
-              </div>
-            );
-          })}
+        {/* Players header */}
+        <div style={{ padding: '10px 14px 6px', flexShrink: 0 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            Players · {activePlayers.length}
+          </span>
+        </div>
+
+        {/* Players list */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {activePlayers.map((player) => (
+            <PlayerCard
+              key={player.id}
+              player={player}
+              properties={activeProperties}
+              isCurrentTurn={currentPlayer?.id === player.id}
+              isMe={player.id === myPlayerId}
+            />
+          ))}
         </div>
       </div>
 
-      {/* ── Main layout ── */}
-      <div className="flex flex-1 gap-3 p-3 overflow-hidden min-h-0">
-        {/* Left: Player cards */}
-        <div className="w-44 shrink-0 flex flex-col gap-2 overflow-y-auto">
-          <p className="text-slate-700 text-[9px] uppercase tracking-widest px-1 shrink-0">Players</p>
-          {activePlayers
-            .slice()
-            .sort((a, b) => a.turn_order - b.turn_order)
-            .map((player) => (
-              <PlayerCard
-                key={player.id}
-                player={player}
-                properties={activeProperties}
-                isCurrentTurn={currentPlayer?.id === player.id}
-                isMe={player.id === myPlayerId}
-              />
-            ))}
+      {/* ── Center ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        {/* Top turn bar */}
+        <div style={{
+          padding: '9px 16px',
+          borderBottom: '1px solid var(--stroke-hairline)',
+          background: 'var(--bg-glass-strong)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          flexShrink: 0,
+        }}>
+          {/* Turn chip */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '5px 12px',
+            background: isMyTurn ? 'oklch(0.82 0.17 210 / 0.1)' : 'var(--bg-raised)',
+            border: `1px solid ${isMyTurn ? 'oklch(0.82 0.17 210 / 0.35)' : 'var(--stroke-soft)'}`,
+            borderRadius: 'var(--r-pill)',
+            flexShrink: 0,
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: currentNeon,
+              boxShadow: `0 0 6px ${currentNeon}`,
+              flexShrink: 0,
+            }} />
+            <span style={{
+              fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
+              color: isMyTurn ? 'var(--neon-cyan)' : 'var(--text-primary)',
+              whiteSpace: 'nowrap',
+            }}>
+              {isMyTurn ? 'Your turn' : `${currentPlayer?.name ?? '…'}${currentPlayer?.is_bot ? ' · Bot' : ''}`}
+            </span>
+            {phaseLabel && (
+              <>
+                <div style={{ width: 1, height: 12, background: 'var(--stroke-soft)', flexShrink: 0 }} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  {phaseLabel}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          {/* Settings button */}
+          <button style={{
+            width: 32, height: 32,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'var(--bg-raised)',
+            border: '1px solid var(--stroke-soft)',
+            borderRadius: 'var(--r-md)',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
         </div>
 
-        {/* Center: Board */}
-        <div className="flex-1 flex items-start justify-center overflow-auto">
+        {/* Board area */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 16 }}>
           <BoardView
             players={activePlayers}
             properties={activeProperties}
             onTileClick={(id) => setSelectedTile(TILES[id])}
           />
         </div>
+      </div>
 
-        {/* Right: Event log + Action panel */}
-        <div className="w-52 shrink-0 flex flex-col gap-3 min-h-0">
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <EventLog entries={activeRoom.event_log ?? []} />
-          </div>
-          {myPlayer && (
+      {/* ── Right sidebar ── */}
+      <div style={{ ...sidebarStyle, width: 280, borderLeft: '1px solid var(--stroke-hairline)' }}>
+        {/* ActionPanel */}
+        {myPlayer && (
+          <div style={{ padding: '12px 12px 0', flexShrink: 0 }}>
             <ActionPanel
               room={activeRoom}
               myPlayer={myPlayer}
@@ -377,7 +362,24 @@ export default function GameRoomClient({
               properties={activeProperties}
               allPlayers={activePlayers}
             />
-          )}
+          </div>
+        )}
+
+        {/* EventLog */}
+        <div style={{
+          flex: 1,
+          margin: '12px',
+          background: 'var(--bg-glass-strong)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid var(--stroke-hairline)',
+          borderRadius: 'var(--r-lg)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+        }}>
+          <EventLog entries={activeRoom.event_log ?? []} />
         </div>
       </div>
     </div>

@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { GameRoom, Player, Property } from '@/lib/types';
-import { TILES, SET_COLORS, PLAYER_COLOR_MAP } from '@/lib/game-data';
+import { TILES, SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
 import { upgradeProperty, mortgageProperty, unmortgageProperty } from '@/app/actions/game';
+import FlagChip from './FlagChip';
 
 interface PropertyManagerProps {
   room: GameRoom;
@@ -17,14 +18,40 @@ interface PropertyManagerProps {
 
 const LEVEL_LABELS = ['Base', 'Lvl 1', 'Lvl 2', 'Lvl 3', 'Max'];
 
-export default function PropertyManager({
-  room,
-  player,
-  properties,
-  allPlayers,
-  onClose,
-}: PropertyManagerProps) {
-  const [loading, setLoading] = useState<string | null>(null);
+function PropActionBtn({
+  children, onClick, disabled, color, variant = 'default',
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  color?: string;
+  variant?: 'default' | 'danger' | 'success';
+}) {
+  const bg = variant === 'success' ? 'oklch(0.78 0.18 150 / 0.08)' : variant === 'danger' ? 'oklch(0.82 0.17 75 / 0.08)' : color ? `${color}18` : 'var(--bg-raised)';
+  const borderColor = variant === 'success' ? 'oklch(0.78 0.18 150 / 0.25)' : variant === 'danger' ? 'oklch(0.82 0.17 75 / 0.25)' : color ? `${color}40` : 'var(--stroke-soft)';
+  const textColor = variant === 'success' ? 'var(--success)' : variant === 'danger' ? 'var(--neon-amber)' : color ?? 'var(--text-secondary)';
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        padding: '4px 8px',
+        borderRadius: 'var(--r-sm)',
+        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+        background: bg, border: `1px solid ${borderColor}`, color: textColor,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.3 : 1,
+        transition: 'all var(--dur-fast) var(--ease-out)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function PropertyManager({ room, player, properties, allPlayers, onClose }: PropertyManagerProps) {
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const myProperties = properties
@@ -40,62 +67,97 @@ export default function PropertyManager({
   }, {});
 
   async function withLoad(key: string, fn: () => Promise<{ success: boolean; error?: string }>) {
-    setLoading(key);
+    setLoadingKey(key);
     setError(null);
     const res = await fn();
     if (!res.success) setError(res.error ?? 'Action failed');
-    setLoading(null);
+    setLoadingKey(null);
   }
 
   return (
     <motion.div
-      className="fixed inset-0 z-40 flex items-end justify-center sm:items-center px-2 pb-0 sm:pb-4"
-      style={{ background: 'rgba(6,9,18,0.7)', backdropFilter: 'blur(8px)' }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 40,
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        padding: '0 0 0',
+        background: 'oklch(0.08 0.02 260 / 0.75)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+      }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <motion.div
-        className="w-full max-w-lg max-h-[80vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden"
         style={{
-          background: 'linear-gradient(160deg, #0d1225, #060912)',
-          border: '1px solid rgba(255,255,255,0.07)',
+          width: '100%', maxWidth: 520, maxHeight: '82vh',
+          display: 'flex', flexDirection: 'column',
+          background: 'var(--bg-glass-strong)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid var(--stroke-soft)',
+          borderBottom: 'none',
+          borderRadius: 'var(--r-2xl) var(--r-2xl) 0 0',
+          overflow: 'hidden',
         }}
-        initial={{ y: 60, opacity: 0 }}
+        initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 60, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+        exit={{ y: 80, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
       >
+        {/* Drag handle */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 0' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 'var(--r-pill)', background: 'var(--stroke-strong)' }} />
+        </div>
+
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-4 shrink-0"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
-        >
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 18px 10px',
+          borderBottom: '1px solid var(--stroke-hairline)',
+          flexShrink: 0,
+        }}>
           <div>
-            <p className="text-white font-bold">My Properties</p>
-            <p className="text-slate-500 text-xs">{myProperties.length} owned · {formatMoney(player.balance)} balance</p>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>My Properties</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>
+              {myProperties.length} owned · {formatMoney(player.balance)} balance
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-600 hover:text-slate-400 text-lg transition-colors"
+            style={{
+              width: 30, height: 30,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
+              borderRadius: 'var(--r-sm)', color: 'var(--text-faint)',
+              cursor: 'pointer', fontSize: 13, fontWeight: 700,
+            }}
           >
             ✕
           </button>
         </div>
 
         {error && (
-          <p className="text-red-400 text-xs px-5 py-2 bg-red-950/30 shrink-0">{error}</p>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)',
+            background: 'oklch(0.68 0.22 25 / 0.08)', borderBottom: '1px solid oklch(0.68 0.22 25 / 0.2)',
+            padding: '7px 18px', flexShrink: 0,
+          }}>
+            {error}
+          </div>
         )}
 
-        {/* Property list */}
-        <div className="overflow-y-auto flex-1 px-4 py-3 space-y-4">
+        {/* Properties list */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {myProperties.length === 0 && (
-            <p className="text-slate-600 text-sm text-center py-6">No properties owned yet.</p>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center', padding: '24px 0' }}>
+              No properties owned yet
+            </div>
           )}
 
           {Object.entries(grouped).map(([groupKey, props]) => {
-            const setColor = SET_COLORS[groupKey] ?? '#475569';
+            const setColor = SET_COLORS[groupKey] ?? 'var(--stroke-strong)';
             const groupTile = TILES[props[0].tile_id];
             const groupLabel = groupTile.set
               ? groupTile.set.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -103,73 +165,119 @@ export default function PropertyManager({
 
             return (
               <div key={groupKey}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: setColor }} />
-                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide">
+                {/* Group header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: setColor, boxShadow: `0 0 6px ${setColor}88`, flexShrink: 0 }} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase', flex: 1 }}>
                     {groupLabel}
-                  </p>
+                  </span>
+                  {/* Monopoly progress badge */}
+                  {(() => {
+                    const setKey = groupTile.set;
+                    if (!setKey) return null;
+                    const setSize = SET_SIZES[setKey] ?? 2;
+                    const ownedCount = props.length;
+                    const isComplete = ownedCount >= setSize;
+                    return (
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 8,
+                        padding: '2px 7px', borderRadius: 'var(--r-pill)',
+                        background: isComplete ? `${setColor}20` : 'oklch(1 0 0 / 0.04)',
+                        color: isComplete ? setColor : 'var(--text-faint)',
+                        border: `1px solid ${isComplete ? `${setColor}50` : 'var(--stroke-hairline)'}`,
+                        letterSpacing: '0.05em',
+                      }}>
+                        {isComplete ? '⭐ MONOPOLY' : `${ownedCount}/${setSize}`}
+                      </span>
+                    );
+                  })()}
                 </div>
+                {/* Monopoly advantage panel — always visible, locked or active */}
+                {(() => {
+                  const setKey = groupTile.set;
+                  if (!setKey) return null;
+                  const adv = SET_ADVANTAGES[setKey];
+                  if (!adv) return null;
+                  const setSize = SET_SIZES[setKey] ?? 2;
+                  const ownedCount = props.length;
+                  const isComplete = ownedCount >= setSize;
+                  return (
+                    <div style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 7,
+                      padding: '6px 10px', borderRadius: 'var(--r-sm)',
+                      background: isComplete ? `${setColor}10` : 'oklch(1 0 0 / 0.02)',
+                      border: `1px solid ${isComplete ? `${setColor}30` : 'var(--stroke-hairline)'}`,
+                      marginBottom: 8,
+                      opacity: isComplete ? 1 : 0.55,
+                      transition: 'opacity 0.3s, background 0.3s',
+                    }}>
+                      {isComplete ? (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={setColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                        </svg>
+                      ) : (
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                      )}
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: isComplete ? setColor : 'var(--text-faint)', marginBottom: 2 }}>
+                          {isComplete ? 'Bonus Active' : 'Monopoly Bonus (locked)'}
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: isComplete ? 'var(--text-secondary)' : 'var(--text-faint)', lineHeight: 1.4 }}>
+                          {adv}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-                <div className="space-y-2">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {props.map((prop) => {
                     const tile = TILES[prop.tile_id];
                     const currentRent = tile.rentLevels?.[prop.upgrade_level];
                     const nextRent = tile.rentLevels?.[prop.upgrade_level + 1];
-                    const unmortgageCost = tile.mortgageValue
-                      ? Math.ceil(tile.mortgageValue * 1.1)
-                      : 0;
-                    const canUpgrade =
-                      tile.type === 'country' &&
-                      prop.upgrade_level < 4 &&
-                      !prop.is_mortgaged &&
-                      player.balance >= (tile.upgradePrice ?? 999);
+                    const unmortgageCost = tile.mortgageValue ? Math.ceil(tile.mortgageValue * 1.1) : 0;
+                    const canUpgrade = tile.type === 'country' && prop.upgrade_level < 4 && !prop.is_mortgaged && player.balance >= (tile.upgradePrice ?? 999);
                     const canMortgage = !prop.is_mortgaged && prop.upgrade_level === 0;
                     const canUnmortgage = prop.is_mortgaged && player.balance >= unmortgageCost;
 
                     return (
                       <div
                         key={prop.id}
-                        className="rounded-xl px-3 py-3"
                         style={{
-                          background: prop.is_mortgaged
-                            ? 'rgba(100,100,120,0.08)'
-                            : 'rgba(255,255,255,0.03)',
-                          border: `1px solid ${prop.is_mortgaged ? 'rgba(100,100,120,0.15)' : setColor + '22'}`,
-                          opacity: prop.is_mortgaged ? 0.7 : 1,
+                          padding: '10px 12px', borderRadius: 'var(--r-md)',
+                          background: prop.is_mortgaged ? 'oklch(1 0 0 / 0.015)' : 'oklch(1 0 0 / 0.03)',
+                          border: `1px solid ${prop.is_mortgaged ? 'var(--stroke-hairline)' : setColor + '28'}`,
+                          opacity: prop.is_mortgaged ? 0.65 : 1,
                         }}
                       >
-                        <div className="flex items-start gap-2">
-                          <span className="text-lg shrink-0">{tile.flag ?? '🏠'}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="text-white text-sm font-semibold">{tile.name}</p>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                          {tile.flag && <FlagChip code={tile.flag} size={16} style={{ display: 'inline-block', flexShrink: 0, boxShadow: '0 1px 4px oklch(0 0 0 / 0.4)' }} />}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>{tile.name}</span>
                               {prop.is_mortgaged && (
-                                <span
-                                  className="text-[9px] px-1.5 py-0.5 rounded"
-                                  style={{ background: 'rgba(255,100,100,0.15)', color: '#ff8888' }}
-                                >
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, padding: '1px 5px', borderRadius: 'var(--r-pill)', background: 'oklch(0.82 0.17 75 / 0.12)', color: 'var(--neon-amber)', letterSpacing: '0.06em' }}>
                                   MORTGAGED
                                 </span>
                               )}
                               {prop.upgrade_level > 0 && (
-                                <span
-                                  className="text-[9px] px-1.5 py-0.5 rounded"
-                                  style={{ background: `${setColor}22`, color: setColor }}
-                                >
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, padding: '1px 5px', borderRadius: 'var(--r-pill)', background: `${setColor}18`, color: setColor, letterSpacing: '0.06em' }}>
                                   {LEVEL_LABELS[prop.upgrade_level]}
                                 </span>
                               )}
                             </div>
 
-                            {/* Upgrade dots */}
+                            {/* Upgrade pips */}
                             {tile.type === 'country' && (
-                              <div className="flex gap-1 mt-1">
+                              <div style={{ display: 'flex', gap: 4, marginBottom: 5 }}>
                                 {Array.from({ length: 4 }).map((_, i) => (
                                   <div
                                     key={i}
-                                    className="w-2 h-2 rounded-full"
                                     style={{
-                                      backgroundColor: i < prop.upgrade_level ? setColor : 'rgba(255,255,255,0.08)',
+                                      width: 7, height: 7, borderRadius: '50%',
+                                      background: i < prop.upgrade_level ? setColor : 'oklch(1 0 0 / 0.08)',
                                       boxShadow: i < prop.upgrade_level ? `0 0 4px ${setColor}` : 'none',
                                     }}
                                   />
@@ -177,83 +285,48 @@ export default function PropertyManager({
                               </div>
                             )}
 
-                            {/* Rent info */}
-                            <div className="flex items-center gap-3 mt-1.5">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                               {currentRent !== undefined && (
-                                <span className="text-xs text-slate-500">
-                                  Rent: <span className="text-slate-300">{formatMoney(currentRent)}</span>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
+                                  Rent: <span style={{ color: 'var(--text-secondary)' }}>{formatMoney(currentRent)}</span>
                                 </span>
                               )}
                               {nextRent !== undefined && !prop.is_mortgaged && (
-                                <span className="text-xs text-slate-600">
-                                  → <span className="text-green-500">{formatMoney(nextRent)}</span>
-                                </span>
-                              )}
-                              {tile.mortgageValue && (
-                                <span className="text-xs text-slate-600">
-                                  MV: {formatMoney(tile.mortgageValue)}
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
+                                  → <span style={{ color: 'var(--success)' }}>{formatMoney(nextRent)}</span>
                                 </span>
                               )}
                             </div>
                           </div>
 
-                          {/* Action buttons */}
-                          <div className="flex flex-col gap-1 shrink-0">
+                          {/* Actions */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
                             {tile.type === 'country' && !prop.is_mortgaged && (
-                              <button
-                                disabled={!canUpgrade || loading === `up-${prop.id}`}
-                                onClick={() =>
-                                  withLoad(`up-${prop.id}`, () =>
-                                    upgradeProperty(room.id, player.id, prop.tile_id),
-                                  )
-                                }
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-semibold disabled:opacity-30 transition-all"
-                                style={{
-                                  background: canUpgrade ? `${setColor}22` : 'rgba(100,100,120,0.1)',
-                                  color: canUpgrade ? setColor : '#555',
-                                  border: `1px solid ${canUpgrade ? setColor + '44' : 'transparent'}`,
-                                }}
+                              <PropActionBtn
+                                color={setColor}
+                                disabled={!canUpgrade || loadingKey === `up-${prop.id}`}
+                                onClick={() => withLoad(`up-${prop.id}`, () => upgradeProperty(room.id, player.id, prop.tile_id))}
                               >
-                                {loading === `up-${prop.id}` ? '…' : `↑ $${tile.upgradePrice}`}
-                              </button>
+                                {loadingKey === `up-${prop.id}` ? '…' : `↑ $${tile.upgradePrice}`}
+                              </PropActionBtn>
                             )}
-
                             {canMortgage && (
-                              <button
-                                disabled={loading === `mort-${prop.id}`}
-                                onClick={() =>
-                                  withLoad(`mort-${prop.id}`, () =>
-                                    mortgageProperty(room.id, player.id, prop.tile_id),
-                                  )
-                                }
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all"
-                                style={{
-                                  background: 'rgba(255,170,0,0.08)',
-                                  color: '#ffaa00',
-                                  border: '1px solid rgba(255,170,0,0.2)',
-                                }}
+                              <PropActionBtn
+                                variant="danger"
+                                disabled={loadingKey === `mort-${prop.id}`}
+                                onClick={() => withLoad(`mort-${prop.id}`, () => mortgageProperty(room.id, player.id, prop.tile_id))}
                               >
-                                {loading === `mort-${prop.id}` ? '…' : `Mortgage $${tile.mortgageValue}`}
-                              </button>
+                                {loadingKey === `mort-${prop.id}` ? '…' : `Mortgage $${tile.mortgageValue}`}
+                              </PropActionBtn>
                             )}
-
                             {prop.is_mortgaged && (
-                              <button
-                                disabled={!canUnmortgage || loading === `unmort-${prop.id}`}
-                                onClick={() =>
-                                  withLoad(`unmort-${prop.id}`, () =>
-                                    unmortgageProperty(room.id, player.id, prop.tile_id),
-                                  )
-                                }
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-semibold disabled:opacity-40 transition-all"
-                                style={{
-                                  background: canUnmortgage ? 'rgba(0,255,136,0.08)' : 'rgba(100,100,120,0.08)',
-                                  color: canUnmortgage ? '#00ff88' : '#555',
-                                  border: `1px solid ${canUnmortgage ? 'rgba(0,255,136,0.2)' : 'transparent'}`,
-                                }}
+                              <PropActionBtn
+                                variant="success"
+                                disabled={!canUnmortgage || loadingKey === `unmort-${prop.id}`}
+                                onClick={() => withLoad(`unmort-${prop.id}`, () => unmortgageProperty(room.id, player.id, prop.tile_id))}
                               >
-                                {loading === `unmort-${prop.id}` ? '…' : `Lift $${unmortgageCost}`}
-                              </button>
+                                {loadingKey === `unmort-${prop.id}` ? '…' : `Lift $${unmortgageCost}`}
+                              </PropActionBtn>
                             )}
                           </div>
                         </div>

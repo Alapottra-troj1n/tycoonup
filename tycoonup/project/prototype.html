@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TycoonUP — Prototype</title>
+  <link rel="stylesheet" href="shared/tokens.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    html, body { height: 100%; overflow-x: hidden; }
+    body { font-family: var(--font-ui); }
+    .app { display: grid; grid-template-columns: minmax(200px, 230px) minmax(0, 1fr) minmax(230px, 280px); gap: 10px; padding: 10px; height: 100vh; max-height: 100vh; max-width: 100vw; overflow: hidden; box-sizing: border-box; }
+    @media (max-width: 1280px) {
+      .app { grid-template-columns: 190px minmax(0, 1fr) 230px; gap: 8px; padding: 8px; }
+    }
+    @media (max-width: 1040px) {
+      .app { grid-template-columns: minmax(0, 1fr); height: auto; max-height: none; overflow-y: auto; overflow-x: hidden; padding: 12px; gap: 12px; }
+      .col.side { max-height: none; }
+      .col.center-wrap { order: -1; min-height: 60vh; }
+    }
+    .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
+    .panel { background: var(--bg-glass-strong); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border: 1px solid var(--stroke-soft); border-radius: 16px; box-shadow: var(--shadow-lg), inset 0 1px 0 oklch(1 0 0 / 0.04); }
+    .pad { padding: 16px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; border-bottom: 1px solid var(--stroke-hairline); }
+    .panel-title { font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+    .panel-eyebrow { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; color: var(--text-muted); text-transform: uppercase; }
+    .center-col { display: flex; align-items: center; justify-content: center; position: relative; min-height: 0; overflow: hidden; }
+    .board-fit { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; }
+    .chat-input { width: 100%; background: var(--bg-raised); border: 1px solid var(--stroke-hairline); border-radius: 10px; padding: 10px 12px; color: var(--text-primary); font-family: var(--font-ui); font-size: 13px; outline: none; }
+    .chat-input:focus { border-color: var(--neon-cyan); box-shadow: 0 0 0 3px oklch(0.82 0.17 210 / 0.12); }
+    .event-row { padding: 8px 14px; border-left: 2px solid transparent; font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; align-items: baseline; }
+    .event-row.highlight { border-left-color: var(--neon-cyan); background: oklch(0.82 0.17 210 / 0.06); }
+    .event-time { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); min-width: 32px; }
+    .kv { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--stroke-hairline); font-size: 12px; }
+    .kv:last-child { border-bottom: none; }
+    .kv-label { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .kv-val { color: var(--text-primary); font-family: var(--font-mono); font-weight: 600; }
+    .modal-scrim { position: fixed; inset: 0; background: oklch(0.08 0.02 260 / 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; animation: fadeIn var(--dur-med) var(--ease-out); }
+    @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes scaleIn { from { opacity: 0; transform: scale(0.95) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    .modal { animation: scaleIn 320ms var(--ease-spring) both; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; }
+    .dice-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    @keyframes diceBob1 { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-8px) rotate(-9deg); } }
+    @keyframes diceBob2 { 0%, 100% { transform: translateY(0) rotate(8deg); } 50% { transform: translateY(-8px) rotate(11deg); } }
+    .die-anim-1 { animation: diceBob1 2.4s var(--ease-out) infinite; }
+    .die-anim-2 { animation: diceBob2 2.4s var(--ease-out) infinite; }
+    .toggle { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--bg-raised); border: 1px solid var(--stroke-soft); cursor: pointer; flex-shrink: 0; }
+    .toggle.on { background: var(--neon-cyan); border-color: var(--neon-cyan); }
+    .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--text-primary); border-radius: 50%; transition: left var(--dur-fast) var(--ease-out); }
+    .toggle.on::after { left: 16px; background: oklch(0.12 0.02 260); }
+  </style>
+</head>
+<body class="tu-backdrop">
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script type="text/babel" src="shared/primitives.jsx"></script>
+  <script type="text/babel" src="shared/components.jsx"></script>
+  <script type="text/babel" src="shared/board.jsx"></script>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useLayoutEffect } = React;
+
+    // Auto-fit hook: measures container and returns scale so 760px board fits
+    const useFit = (intrinsic = 760, minScale = 0.35, maxScale = 1) => {
+      const ref = useRef(null);
+      const [scale, setScale] = useState(0.7);
+      useLayoutEffect(() => {
+        if (!ref.current) return;
+        const update = () => {
+          if (!ref.current) return;
+          const r = ref.current.getBoundingClientRect();
+          const w = r.width - 8;
+          const h = r.height - 8;
+          if (w <= 0 || h <= 0) return;
+          // Board is square — scale to the smaller dimension so it always fits
+          const s = Math.max(minScale, Math.min(maxScale, Math.min(w, h) / intrinsic));
+          setScale(s);
+        };
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(ref.current);
+        window.addEventListener('resize', update);
+        return () => { ro.disconnect(); window.removeEventListener('resize', update); };
+      }, []);
+      return [ref, scale];
+    };
+
+    const PLAYERS = [
+      { id: 'p1', color: 'magenta', name: 'Zenith', balance: 2480, netWorth: 3120, position: 9, isYou: false, host: true },
+      { id: 'p2', color: 'cyan', name: 'Homelander', balance: 1580, netWorth: 2740, position: 9, isYou: true, host: false },
+      { id: 'p3', color: 'lime', name: 'Yeppy', balance: 1120, netWorth: 1980, position: 0, isYou: false, host: false },
+      { id: 'p4', color: 'amber', name: 'Notable', balance: 840, netWorth: 1340, position: 24, isYou: false, host: false, bot: true }
+    ];
+
+    // Ownership derived from players' assumed holdings
+    const OWNERSHIP = {
+      1: 'lime', 3: 'lime',                   // Africa
+      6: 'cyan', 8: 'cyan', 9: 'cyan',         // Asia (you)
+      11: 'magenta', 13: 'magenta', 14: 'magenta', // more Asia (Zenith)
+      18: 'amber', 19: 'amber',                // Mideast (Notable)
+      23: 'magenta', 24: 'magenta',             // Europe
+      26: 'cyan', 27: 'cyan', 29: 'cyan',       // Europe (you)
+      31: 'lime', 32: 'lime', 34: 'lime',       // Americas
+      5: 'magenta', 15: 'cyan', 25: 'amber',    // airports
+      12: 'cyan'                                // electric
+    };
+    const TIERS = {
+      9: 3, 8: 2, 6: 1,
+      11: 4, 13: 2, 14: 2,
+      23: 3, 24: 3,
+      26: 2, 27: 4, 29: 5,
+      34: 2, 32: 1, 31: 1,
+      18: 1, 19: 2
+    };
+
+    const TOKENS_BY_TILE = {};
+    PLAYERS.forEach(p => {
+      TOKENS_BY_TILE[p.position] = TOKENS_BY_TILE[p.position] || [];
+      TOKENS_BY_TILE[p.position].push(p.color);
+    });
+
+    const EVENTS = [
+      { t: '14:02', msg: <><b style={{color:'var(--neon-magenta)'}}>Zenith</b> rolled <span style={{fontFamily:'var(--font-mono)'}}>5 + 3</span></>, hi: true },
+      { t: '14:02', msg: <>landed on <b style={{color:'var(--neon-cyan)'}}>Tokyo</b> · owned by you</>, hi: true },
+      { t: '14:02', msg: <>paid you <span style={{fontFamily:'var(--font-mono)', color:'var(--success)'}}>+$48</span> rent</> },
+      { t: '14:01', msg: <><b style={{color:'var(--neon-lime)'}}>Yeppy</b> upgraded Toronto · tier 2</> },
+      { t: '14:00', msg: <><b style={{color:'var(--neon-amber)'}}>Notable</b> drew a <b style={{color:'var(--neon-amber)'}}>Treasure</b> · +$150</> },
+      { t: '13:59', msg: <><b style={{color:'var(--neon-cyan)'}}>You</b> bought <b>London</b> for $280</> },
+      { t: '13:58', msg: <><b style={{color:'var(--neon-magenta)'}}>Zenith</b> passed GO · +$200</> }
+    ];
+
+    const BuyModal = ({ onClose }) => {
+      const tile = BOARD_TILES[9]; // Tokyo
+      return (
+        <div className="modal-scrim" onClick={onClose}>
+          <div className="modal" style={{ width: 'min(520px, 100%)' }} onClick={e => e.stopPropagation()}>
+            <div className="panel" style={{ overflow: 'hidden' }}>
+              <div style={{
+                padding: '24px 28px',
+                background: `linear-gradient(180deg, ${SET_VAR.asia}, transparent)`,
+                display: 'flex', gap: 20, alignItems: 'center',
+                borderBottom: '1px solid var(--stroke-hairline)'
+              }}>
+                <div style={{ filter: 'drop-shadow(0 4px 12px oklch(0 0 0 / 0.4))' }}>
+                  <TileCard tile={tile} size="lg" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'oklch(0.12 0.02 260 / 0.7)', fontWeight: 600 }}>Asia · set of 5</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 36, letterSpacing: '-0.03em', color: 'oklch(0.12 0.02 260)', lineHeight: 1.05, marginTop: 4 }}>Tokyo</div>
+                  <div style={{ fontSize: 13, color: 'oklch(0.2 0.03 260)', lineHeight: 1.5, marginTop: 6 }}>Neon-drenched capital on the Pacific. Flagship of the Asia set.</div>
+                </div>
+              </div>
+
+              <div className="pad" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                <div>
+                  <div className="panel-eyebrow" style={{ marginBottom: 10 }}>Rent schedule</div>
+                  <div className="kv"><span className="kv-label">Tile only</span><span className="kv-val">$12</span></div>
+                  <div className="kv"><span className="kv-label">Tier 1</span><span className="kv-val">$48</span></div>
+                  <div className="kv"><span className="kv-label">Tier 2</span><span className="kv-val">$140</span></div>
+                  <div className="kv"><span className="kv-label">Tier 3</span><span className="kv-val">$320</span></div>
+                  <div className="kv"><span className="kv-label">Tier 4 · capital</span><span className="kv-val">$720</span></div>
+                </div>
+                <div>
+                  <div className="panel-eyebrow" style={{ marginBottom: 10 }}>Minor advantage</div>
+                  <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--stroke-hairline)', borderRadius: 10, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: 'oklch(0.82 0.17 210 / 0.15)', border: '1px solid oklch(0.82 0.17 210 / 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon name="bolt" size={16} color="var(--neon-cyan)"/>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13, marginBottom: 2 }}>Neon rush</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>When you own Tokyo, rolling doubles grants an extra $25 dividend per turn.</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <div className="panel-eyebrow" style={{ marginBottom: 8 }}>Set bonus</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Own all 5 Asia tiles to double rent across the whole set.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{
+                padding: '16px 20px',
+                borderTop: '1px solid var(--stroke-hairline)',
+                background: 'oklch(0.14 0.02 260 / 0.5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16
+              }}>
+                <div>
+                  <div className="panel-eyebrow">Price</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>$120</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>You have <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>$1,580</span> → after: <span style={{ color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>$1,460</span></div>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Button variant="ghost" onClick={onClose}>Auction</Button>
+                  <Button variant="primary" color="var(--neon-lime)" icon="coin" size="lg">Buy · $120</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const DiceOverlay = () => (
+      <div style={{
+        position: 'absolute',
+        top: 14,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+        zIndex: 10,
+        pointerEvents: 'none'
+      }}>
+        <div style={{
+          padding: '6px 14px',
+          background: 'oklch(0.2 0.03 260 / 0.9)',
+          border: '1px solid oklch(0.72 0.22 350 / 0.5)',
+          borderRadius: 999,
+          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase',
+          color: 'var(--neon-magenta)', display: 'flex', alignItems: 'center', gap: 8,
+          boxShadow: '0 0 20px oklch(0.72 0.22 350 / 0.4)'
+        }}>
+          <PlayerToken color="magenta" size={16} glow={false}/>
+          Zenith rolling
+        </div>
+      </div>
+    );
+
+    const App = () => {
+      const [showBuy, setShowBuy] = useState(true);
+      const [rolling, setRolling] = useState(true);
+      const [fitRef, scale] = useFit(760, 0.35, 1);
+
+      return (
+        <div className="app">
+          {/* LEFT: share + chat */}
+          <div className="col side">
+            <div style={{ padding: '4px 2px' }}>
+              <TULogo size={24}/>
+            </div>
+
+            <div className="panel">
+              <div className="panel-head">
+                <span className="panel-title">Share room</span>
+                <span className="panel-eyebrow">3sv9w</span>
+              </div>
+              <div className="pad" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: 'var(--bg-raised)', border: '1px solid var(--stroke-hairline)',
+                  borderRadius: 10, padding: '8px 10px'
+                }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>tycoon.up/r/3sv9w</span>
+                  <Icon name="copy" size={14} color="var(--text-muted)"/>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Chip color="cyan" style={{ flex: 1, justifyContent: 'center' }}>4/4 players</Chip>
+                  <Chip color="lime" style={{ flex: 1, justifyContent: 'center' }}>Turn 14</Chip>
+                </div>
+              </div>
+            </div>
+
+            <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="panel-head">
+                <span className="panel-title">
+                  <Icon name="chat" size={14} color="var(--text-secondary)" style={{ verticalAlign: 'middle' }}/> Chat
+                </span>
+                <Icon name="volume" size={14} color="var(--text-muted)"/>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <PlayerToken color="magenta" size={22} glow={false}/>
+                  <div>
+                    <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--neon-magenta)' }}>Zenith · 14:01</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.45 }}>gg trade me paris</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <PlayerToken color="lime" size={22} glow={false}/>
+                  <div>
+                    <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--neon-lime)' }}>Yeppy · 14:00</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.45 }}>never lol</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <PlayerToken color="cyan" size={22} glow={false}/>
+                  <div>
+                    <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--neon-cyan)' }}>You · 13:58</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.45 }}>anyone selling airports?</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ padding: 10, borderTop: '1px solid var(--stroke-hairline)', display: 'flex', gap: 6 }}>
+                <input className="chat-input" placeholder="Say something…"/>
+                <button style={{ background: 'var(--neon-cyan)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <Icon name="send" size={14} color="oklch(0.12 0.02 260)"/>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* CENTER: board */}
+          <div className="col center-wrap" style={{ minWidth: 0 }}>
+            <div className="panel topbar">
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <Chip color="magenta">Zenith's turn</Chip>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>· 00:24 remaining</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="ghost" size="sm" icon="map">Classic map</Button>
+                <Button variant="ghost" size="sm" icon="settings">Settings</Button>
+              </div>
+            </div>
+
+            <div className="center-col" style={{ flex: 1, minHeight: 0 }} ref={fitRef}>
+              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>
+                <Board ownership={OWNERSHIP} tiers={TIERS} tokens={TOKENS_BY_TILE} highlight={9} onTileClick={() => setShowBuy(true)} scale={scale}/>
+                {rolling && <DiceOverlay/>}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT: players + action + log */}
+          <div className="col side">
+            <div className="panel">
+              <div className="panel-head">
+                <span className="panel-title">Players</span>
+                <span className="panel-eyebrow">4/4</span>
+              </div>
+              <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {PLAYERS.map(p => (
+                  <PlayerCard key={p.id} color={p.color} name={p.name} balance={p.balance} netWorth={p.netWorth} isTurn={p.id === 'p1'} isYou={p.isYou}/>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-head">
+                <span className="panel-title">Quick actions</span>
+                <span className="panel-eyebrow">your turn soon</span>
+              </div>
+              <div className="pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Button variant="secondary" icon="users" fullWidth>Propose trade</Button>
+                <Button variant="ghost" icon="coin" size="sm" fullWidth>Manage properties</Button>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, textAlign: 'center', padding: '4px 8px 0' }}>
+                  Click any tile you own to upgrade, mortgage, or list it for trade.
+                </div>
+              </div>
+            </div>
+
+            <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="panel-head">
+                <span className="panel-title">Event log</span>
+                <span className="panel-eyebrow">live</span>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', minHeight: 0, padding: '6px 0' }}>
+                {EVENTS.map((e, i) => (
+                  <div key={i} className={`event-row ${e.hi ? 'highlight' : ''}`}>
+                    <span className="event-time">{e.t}</span>
+                    <span>{e.msg}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {showBuy && <BuyModal onClose={() => setShowBuy(false)}/>}
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

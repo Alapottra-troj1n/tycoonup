@@ -3,9 +3,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { GameRoom, Player } from '@/lib/types';
-import { TILES, SET_COLORS, PLAYER_COLOR_MAP } from '@/lib/game-data';
+import { TILES, SET_COLORS } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
 import { placeBid, resolveAuction } from '@/app/actions/game';
+import FlagChip from './FlagChip';
+
+const NEON: Record<string, string> = {
+  cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
+  amber: 'var(--neon-amber)', violet: 'var(--neon-violet)', rose: 'var(--neon-rose)',
+};
 
 interface AuctionModalProps {
   room: GameRoom;
@@ -18,7 +24,7 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
   if (pending?.type !== 'auction') return null;
 
   const tile = TILES[pending.tile_id ?? 0];
-  const setColor = tile.set ? SET_COLORS[tile.set] : '#00bcd4';
+  const setColor = tile.set ? SET_COLORS[tile.set] : 'var(--neon-cyan)';
   const expiresAt = pending.expires_at ?? Date.now() + 25000;
 
   const [timeLeft, setTimeLeft] = useState(Math.max(0, Math.round((expiresAt - Date.now()) / 1000)));
@@ -31,7 +37,6 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
     const interval = setInterval(() => {
       const remaining = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
       setTimeLeft(remaining);
-
       if (remaining <= 0 && !resolvedRef.current) {
         resolvedRef.current = true;
         clearInterval(interval);
@@ -57,82 +62,95 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
     setLoading(false);
   }
 
-  const timerColor = timeLeft <= 5 ? '#ff4444' : timeLeft <= 10 ? '#ffcc00' : '#00f5ff';
+  const timerDanger = timeLeft <= 5;
+  const timerWarn = timeLeft <= 10;
+  const timerColor = timerDanger ? 'var(--danger)' : timerWarn ? 'var(--neon-amber)' : 'var(--neon-cyan)';
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      style={{ background: 'rgba(6,9,18,0.88)', backdropFilter: 'blur(16px)' }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 16,
+        background: 'oklch(0.08 0.02 260 / 0.9)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+      }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="w-full max-w-md rounded-2xl overflow-hidden"
         style={{
-          background: 'linear-gradient(160deg, #0d1225, #060912)',
+          width: '100%', maxWidth: 420,
+          background: 'var(--bg-glass-strong)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
           border: `1px solid ${setColor}44`,
-          boxShadow: `0 0 60px ${setColor}18`,
+          borderRadius: 'var(--r-2xl)',
+          boxShadow: `0 0 50px ${setColor}15, var(--shadow-xl)`,
+          overflow: 'hidden',
         }}
-        initial={{ scale: 0.75, y: 24 }}
+        initial={{ scale: 0.82, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+        transition={{ type: 'spring', stiffness: 310, damping: 24 }}
       >
+        {/* Set color line */}
+        <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${setColor}, transparent)` }} />
+
         {/* Header */}
-        <div
-          className="px-5 py-3 flex items-center justify-between"
-          style={{ borderBottom: `1px solid ${setColor}22` }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">{tile.flag ?? '🏠'}</span>
+        <div style={{
+          padding: '14px 18px',
+          borderBottom: '1px solid var(--stroke-hairline)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {tile.flag && <FlagChip code={tile.flag} size={21} style={{ boxShadow: '0 1px 4px oklch(0 0 0 / 0.4)' }} />}
             <div>
-              <p className="text-white font-bold text-sm">{tile.name}</p>
-              <p className="text-slate-500 text-xs">Open Auction</p>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
+                {tile.name}
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Open Auction
+              </div>
             </div>
           </div>
-          {/* Timer ring */}
-          <div className="flex items-center gap-2">
-            <motion.div
-              className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm"
-              style={{
-                background: `${timerColor}18`,
-                border: `2px solid ${timerColor}`,
-                color: timerColor,
-                boxShadow: `0 0 12px ${timerColor}44`,
-              }}
-              animate={timeLeft <= 5 ? { scale: [1, 1.1, 1] } : {}}
-              transition={{ repeat: Infinity, duration: 0.6 }}
-            >
-              {timeLeft}
-            </motion.div>
-          </div>
+
+          {/* Timer */}
+          <motion.div
+            style={{
+              width: 44, height: 44, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16,
+              background: timerDanger ? 'oklch(0.68 0.22 25 / 0.15)' : timerWarn ? 'oklch(0.82 0.17 75 / 0.1)' : 'oklch(0.82 0.17 210 / 0.1)',
+              border: `2px solid ${timerColor}`,
+              color: timerColor,
+              boxShadow: `0 0 16px ${timerColor}44`,
+            }}
+            animate={timerDanger ? { scale: [1, 1.1, 1] } : {}}
+            transition={{ repeat: Infinity, duration: 0.6 }}
+          >
+            {timeLeft}
+          </motion.div>
         </div>
 
-        {/* Property info strip */}
-        <div
-          className="h-1 w-full"
-          style={{ background: `linear-gradient(90deg, transparent, ${setColor}, transparent)` }}
-        />
-
-        <div className="px-5 py-4 space-y-4">
-          {/* Current price info */}
-          <div className="flex items-center justify-between">
+        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Bid info */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p className="text-slate-500 text-xs uppercase tracking-widest">List Price</p>
-              <p className="text-slate-300 font-semibold">{formatMoney(tile.buyPrice ?? 0)}</p>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>List Price</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, color: 'var(--text-secondary)' }}>{formatMoney(tile.buyPrice ?? 0)}</div>
             </div>
-            <div className="text-right">
-              <p className="text-slate-500 text-xs uppercase tracking-widest">Current Bid</p>
-              <p
-                className="font-bold text-xl"
-                style={{
-                  color: currentBid > 0 ? '#00ff88' : '#475569',
-                  textShadow: currentBid > 0 ? '0 0 10px rgba(0,255,136,0.5)' : 'none',
-                }}
-              >
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Current Bid</div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 22,
+                color: currentBid > 0 ? 'var(--success)' : 'var(--text-faint)',
+                textShadow: currentBid > 0 ? '0 0 10px oklch(0.78 0.18 150 / 0.4)' : 'none',
+              }}>
                 {currentBid > 0 ? formatMoney(currentBid) : 'No bids'}
-              </p>
+              </div>
             </div>
           </div>
 
@@ -140,71 +158,82 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
           <AnimatePresence>
             {highestBidder && (
               <motion.div
-                className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(0,255,136,0.06)', border: '1px solid rgba(0,255,136,0.15)' }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 12px', borderRadius: 'var(--r-md)',
+                  background: 'oklch(0.78 0.18 150 / 0.06)',
+                  border: '1px solid oklch(0.78 0.18 150 / 0.2)',
+                }}
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
               >
-                <div
-                  className="w-5 h-5 rounded-full shrink-0"
-                  style={{
-                    backgroundColor: PLAYER_COLOR_MAP[highestBidder.color]?.hex,
-                    boxShadow: `0 0 6px ${PLAYER_COLOR_MAP[highestBidder.color]?.hex}`,
-                  }}
-                />
-                <p className="text-green-400 text-sm">
-                  <span className="font-semibold">{highestBidder.name}</span> is leading
+                <div style={{
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: NEON[highestBidder.color] ?? 'var(--neon-cyan)',
+                  boxShadow: `0 0 6px ${NEON[highestBidder.color] ?? 'var(--neon-cyan)'}`,
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--success)' }}>
+                  <strong>{highestBidder.name}</strong> is leading
                   {highestBidder.id === myPlayer.id && (
-                    <span className="text-slate-500 ml-1">(you)</span>
+                    <span style={{ color: 'var(--text-faint)', marginLeft: 4 }}>(you)</span>
                   )}
-                </p>
+                </span>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Country advantage */}
+          {/* Advantage */}
           {tile.advantage && (
-            <p className="text-slate-600 text-xs italic">✦ {tile.advantage}</p>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--neon-amber)', letterSpacing: '0.01em' }}>
+              ✦ {tile.advantage}
+            </div>
           )}
 
-          {/* Players who can bid */}
-          <div className="flex flex-wrap gap-1.5">
-            {players
-              .filter((p) => !p.is_bankrupt)
-              .map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px]"
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${PLAYER_COLOR_MAP[p.color]?.hex}33`,
-                    color: p.id === pending.highest_bidder_id ? '#00ff88' : '#64748b',
-                  }}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: PLAYER_COLOR_MAP[p.color]?.hex }}
-                  />
-                  {p.name}
-                  {p.id === myPlayer.id && ' (you)'}
-                </div>
-              ))}
+          {/* Active players */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {players.filter((p) => !p.is_bankrupt).map((p) => (
+              <div
+                key={p.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '3px 8px', borderRadius: 'var(--r-pill)',
+                  background: 'var(--bg-raised)',
+                  border: `1px solid ${p.id === pending.highest_bidder_id ? 'oklch(0.78 0.18 150 / 0.4)' : 'var(--stroke-hairline)'}`,
+                  fontFamily: 'var(--font-mono)', fontSize: 10,
+                  color: p.id === pending.highest_bidder_id ? 'var(--success)' : 'var(--text-faint)',
+                }}
+              >
+                <div style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: NEON[p.color] ?? 'var(--neon-cyan)',
+                  flexShrink: 0,
+                }} />
+                {p.name}{p.id === myPlayer.id ? ' (you)' : ''}
+              </div>
+            ))}
           </div>
 
-          {/* My balance hint */}
-          <p className="text-slate-600 text-xs">
-            Your balance: <span className="text-cyan-400">{formatMoney(myPlayer.balance)}</span>
-            {' · '}Min bid: <span className="text-white">{formatMoney(minBid)}</span>
-          </p>
+          {/* Balance hint */}
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
+            Your balance: <span style={{ color: 'var(--neon-cyan)' }}>{formatMoney(myPlayer.balance)}</span>
+            <span style={{ color: 'var(--stroke-strong)', margin: '0 6px' }}>·</span>
+            Min bid: <span style={{ color: 'var(--text-primary)' }}>{formatMoney(minBid)}</span>
+          </div>
 
-          {/* Error */}
           {error && (
-            <p className="text-red-400 text-xs bg-red-950/30 rounded px-2 py-1">{error}</p>
+            <div style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)',
+              background: 'oklch(0.68 0.22 25 / 0.08)', border: '1px solid oklch(0.68 0.22 25 / 0.2)',
+              borderRadius: 'var(--r-sm)', padding: '6px 10px',
+            }}>
+              {error}
+            </div>
           )}
 
           {/* Bid input */}
-          {timeLeft > 0 && (
-            <div className="flex gap-2">
+          {timeLeft > 0 ? (
+            <div style={{ display: 'flex', gap: 8 }}>
               <input
                 type="number"
                 value={bidInput}
@@ -213,20 +242,28 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
                 placeholder={`Min $${minBid}`}
                 min={minBid}
                 max={myPlayer.balance}
-                className="flex-1 px-3 py-2.5 rounded-xl text-white text-sm outline-none font-mono"
                 style={{
-                  background: 'rgba(255,255,255,0.05)',
-                  border: `1px solid ${canBid ? setColor + '66' : 'rgba(255,255,255,0.08)'}`,
+                  flex: 1, padding: '10px 12px',
+                  background: 'var(--bg-raised)',
+                  border: `1px solid ${canBid ? setColor + '88' : 'var(--stroke-soft)'}`,
+                  borderRadius: 'var(--r-md)',
+                  fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)',
+                  outline: 'none',
                   caretColor: setColor,
                 }}
               />
               <motion.button
                 disabled={!canBid || loading}
                 onClick={handleBid}
-                className="px-4 py-2.5 rounded-xl font-bold text-sm disabled:opacity-40"
                 style={{
-                  background: canBid ? `linear-gradient(135deg, ${setColor}cc, ${setColor})` : 'rgba(100,100,120,0.2)',
-                  color: canBid ? '#000' : '#555',
+                  padding: '10px 18px',
+                  borderRadius: 'var(--r-md)',
+                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13,
+                  background: canBid ? `linear-gradient(180deg, ${setColor} 0%, oklch(from ${setColor} calc(l * 0.8) c h) 100%)` : 'var(--bg-raised)',
+                  color: canBid ? 'oklch(0.12 0.02 260)' : 'var(--text-faint)',
+                  border: canBid ? 'none' : '1px solid var(--stroke-soft)',
+                  cursor: !canBid || loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.6 : 1,
                 }}
                 whileHover={canBid ? { scale: 1.02 } : {}}
                 whileTap={canBid ? { scale: 0.97 } : {}}
@@ -234,10 +271,10 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
                 {loading ? '…' : 'Bid'}
               </motion.button>
             </div>
-          )}
-
-          {timeLeft <= 0 && (
-            <p className="text-slate-500 text-xs text-center">Resolving auction…</p>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', textAlign: 'center', letterSpacing: '0.06em' }}>
+              Resolving auction…
+            </div>
           )}
         </div>
       </motion.div>

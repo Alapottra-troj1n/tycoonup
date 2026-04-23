@@ -309,29 +309,31 @@ export async function rollDice(
       balanceChange += GO_SALARY;
       eventLog.push(log(`${currentPlayer.name} passed GO! +$${GO_SALARY}`, 'move'));
 
-      // Greece (6) passive: owner earns +$15 when THEY pass GO
-      const greeceProp = allProperties?.find(
-        (p) => p.tile_id === 6 && p.owner_id === playerId && !p.is_mortgaged,
+      // Light-blue (India) monopoly: owner earns +$15 when THEY pass GO
+      const indiaTiles = [6, 8, 9];
+      const ownsIndia = indiaTiles.every((tid) =>
+        allProperties?.find((p) => p.tile_id === tid && p.owner_id === playerId && !p.is_mortgaged),
       );
-      if (greeceProp) {
+      if (ownsIndia) {
         balanceChange += 15;
-        eventLog.push(log(`${currentPlayer.name} earned +$15 from Greece advantage!`, 'system'));
+        eventLog.push(log(`${currentPlayer.name} earned +$15 from India monopoly (GO bonus)!`, 'system'));
       }
     }
 
-    // ── Singapore (39) passive: owner collects $100 when any player rolls doubles ──
+    // Dark-blue (Global Finance) monopoly: $100 collected when any player rolls doubles
     if (isDoubles) {
-      const singaProp = allProperties?.find(
-        (p) => p.tile_id === 39 && p.owner_id && p.owner_id !== playerId && !p.is_mortgaged,
-      );
-      if (singaProp) {
-        const singaOwner = players?.find((p) => p.id === singaProp.owner_id);
-        if (singaOwner) {
-          await supabase
-            .from('players')
-            .update({ balance: singaOwner.balance + 100 })
-            .eq('id', singaOwner.id);
-          eventLog.push(log(`${singaOwner.name} collected $100 from Singapore advantage (doubles)!`, 'system'));
+      // Find if someone else owns the full dark-blue set (both Zurich 37 + Singapore 39)
+      const darkBlueOwners = new Map<string, number>();
+      allProperties?.filter((p) => [37, 39].includes(p.tile_id) && p.owner_id && p.owner_id !== playerId && !p.is_mortgaged)
+        .forEach((p) => darkBlueOwners.set(p.owner_id!, (darkBlueOwners.get(p.owner_id!) ?? 0) + 1));
+      for (const [ownerId, count] of darkBlueOwners) {
+        if (count >= 2) {
+          const financeOwner = players?.find((p) => p.id === ownerId);
+          if (financeOwner) {
+            await supabase.from('players').update({ balance: financeOwner.balance + 100 }).eq('id', financeOwner.id);
+            eventLog.push(log(`${financeOwner.name} collected $100 from Global Finance monopoly (doubles)!`, 'system'));
+          }
+          break;
         }
       }
     }
@@ -445,9 +447,18 @@ export async function rollDice(
       }
 
       case 'tax': {
-        const tax = tile.taxAmount ?? 0;
-        balanceChange -= Math.min(tax, currentPlayer.balance + balanceChange);
-        eventLog.push(log(`${currentPlayer.name} paid $${tax} in taxes.`, 'tax'));
+        let tax: number;
+        if (tile.taxType === 'percent') {
+          // Income Tax: 10% of current balance (rounded to nearest dollar)
+          const base = currentPlayer.balance + balanceChange;
+          tax = Math.round(base * 0.1);
+        } else {
+          tax = tile.taxAmount ?? 0;
+        }
+        const taxPaid = Math.min(tax, currentPlayer.balance + balanceChange);
+        balanceChange -= taxPaid;
+        const taxLabel = tile.taxType === 'percent' ? `${tax} (10% income tax)` : `${tax}`;
+        eventLog.push(log(`${currentPlayer.name} paid $${taxLabel}.`, 'tax'));
         pendingAction = { type: 'tax_paid', player_id: playerId, amount: tax };
         nextPhase = 'end';
         break;
@@ -837,22 +848,34 @@ export async function endTurn(
       let passiveBonus = 0;
       const passiveMessages: string[] = [];
 
-      // Switzerland (37): $40/turn
-      const swissProp = allProperties?.find(
-        (p) => p.tile_id === 37 && p.owner_id === nextPlayer.id && !p.is_mortgaged,
+      // Dark-blue (Global Finance) monopoly: $25/turn if full set owned
+      const darkBlueTiles = [37, 39];
+      const ownsDarkBlue = darkBlueTiles.every((tid) =>
+        allProperties?.find((p) => p.tile_id === tid && p.owner_id === nextPlayer.id && !p.is_mortgaged),
       );
-      if (swissProp) {
-        passiveBonus += 40;
-        passiveMessages.push('Switzerland +$40');
+      if (ownsDarkBlue) {
+        passiveBonus += 25;
+        passiveMessages.push('Global Finance monopoly +$25');
       }
 
-      // UK (31): $25/turn if balance ≥ $1000
-      const ukProp = allProperties?.find(
-        (p) => p.tile_id === 31 && p.owner_id === nextPlayer.id && !p.is_mortgaged,
+      // Green (UK) monopoly: $15/turn if balance ≥ $800
+      const greenTiles = [31, 32, 34];
+      const ownsGreen = greenTiles.every((tid) =>
+        allProperties?.find((p) => p.tile_id === tid && p.owner_id === nextPlayer.id && !p.is_mortgaged),
       );
-      if (ukProp && nextPlayer.balance >= 1000) {
-        passiveBonus += 25;
-        passiveMessages.push('UK +$25');
+      if (ownsGreen && nextPlayer.balance >= 800) {
+        passiveBonus += 15;
+        passiveMessages.push('UK monopoly +$15');
+      }
+
+      // Yellow (USA) monopoly: $20 bonus at start of each of your turns
+      const yellowTiles = [26, 27, 29];
+      const ownsYellow = yellowTiles.every((tid) =>
+        allProperties?.find((p) => p.tile_id === tid && p.owner_id === nextPlayer.id && !p.is_mortgaged),
+      );
+      if (ownsYellow) {
+        passiveBonus += 20;
+        passiveMessages.push('USA monopoly +$20');
       }
 
       if (passiveBonus > 0) {
