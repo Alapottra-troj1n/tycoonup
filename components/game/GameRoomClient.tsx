@@ -6,7 +6,7 @@ import { useGameStore } from '@/lib/store';
 import { getSupabaseClient } from '@/lib/supabase';
 import { TILES, PLAYER_COLOR_MAP } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
-import { rollDice, buyProperty, skipBuy, answerChestQuestion, endTurn } from '@/app/actions/game';
+import { rollDice, buyProperty, skipBuy, answerChestQuestion, endTurn, chooseTax, rejectTrade } from '@/app/actions/game';
 import Lobby from './Lobby';
 import BoardView from './BoardView';
 import ActionPanel from './ActionPanel';
@@ -19,6 +19,8 @@ import WinScreen from './WinScreen';
 import TileDetailModal from './TileDetailModal';
 import BuyOfferModal from './BuyOfferModal';
 import PropertyManager from './PropertyManager';
+import TaxChoiceModal from './TaxChoiceModal';
+import TradeModal from './TradeModal';
 
 const NEON: Record<string, string> = {
   cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
@@ -67,6 +69,7 @@ export default function GameRoomClient({
   const [showProps, setShowProps] = useState(false);
   const [rollLoading, setRollLoading] = useState(false);
   const [endLoading, setEndLoading] = useState(false);
+  const [showTrade, setShowTrade] = useState(false);
 
   const playersRef = useRef<Player[]>(initialPlayers);
   useEffect(() => {
@@ -113,9 +116,19 @@ export default function GameRoomClient({
     if (activeRoom.status !== 'playing') return;
     const sortedPlayers = playersRef.current.slice().sort((a, b) => a.turn_order - b.turn_order);
     const currentPlayer = sortedPlayers[activeRoom.current_player_idx];
-    if (!currentPlayer?.is_bot) return;
     const pending = activeRoom.pending_action;
     let timer: ReturnType<typeof setTimeout>;
+
+    // Auto-reject incoming trade offers directed at a bot, regardless of whose turn it is
+    if (pending?.type === 'trade_offer' && pending.trade_to_player_id) {
+      const recipientBot = sortedPlayers.find(p => p.id === pending.trade_to_player_id && p.is_bot);
+      if (recipientBot) {
+        timer = setTimeout(() => rejectTrade(activeRoom.id, recipientBot.id).catch(() => {}), 1200);
+        return () => clearTimeout(timer);
+      }
+    }
+
+    if (!currentPlayer?.is_bot) return;
     if (activeRoom.turn_phase === 'roll') {
       timer = setTimeout(() => rollDice(activeRoom.id, currentPlayer.id).catch(() => {}), 1000 + Math.random() * 700);
     } else if (activeRoom.turn_phase === 'action') {
@@ -127,8 +140,14 @@ export default function GameRoomClient({
         }, 700);
       } else if (pending?.type === 'chest_quiz' && pending.player_id === currentPlayer.id) {
         timer = setTimeout(() => answerChestQuestion(activeRoom.id, currentPlayer.id, Math.floor(Math.random() * 4)).catch(() => {}), 1200);
+      } else if (pending?.type === 'income_tax_choice' && pending.player_id === currentPlayer.id) {
+        timer = setTimeout(() => {
+          const flat = pending.flat_tax ?? 200;
+          const pct  = pending.net_worth_tax ?? 0;
+          chooseTax(activeRoom.id, currentPlayer.id, flat <= pct ? 'flat' : 'percent').catch(() => {});
+        }, 700);
       }
-    } else if (activeRoom.turn_phase === 'end' && pending?.type !== 'auction') {
+    } else if (activeRoom.turn_phase === 'end' && pending?.type !== 'auction' && pending?.type !== 'trade_offer') {
       timer = setTimeout(() => endTurn(activeRoom.id, currentPlayer.id).catch(() => {}), 600);
     }
     return () => clearTimeout(timer);
@@ -138,7 +157,13 @@ export default function GameRoomClient({
     (room ?? initialRoom).current_player_idx,
     (room ?? initialRoom).pending_action?.type,
     (room ?? initialRoom).pending_action?.player_id,
+    (room ?? initialRoom).pending_action?.trade_to_player_id,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close the trade proposal form when a pending trade resolves
+  useEffect(() => {
+    if ((room ?? initialRoom).pending_action?.type !== 'trade_offer') setShowTrade(false);
+  }, [(room ?? initialRoom).pending_action?.type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeRoom       = room ?? initialRoom;
   const activePlayers    = (players.length > 0 ? players : initialPlayers).slice().sort((a, b) => a.turn_order - b.turn_order);
@@ -174,6 +199,9 @@ export default function GameRoomClient({
   const isChestForMe     = pending?.player_id === myPlayerId;
   const isAuctionActive  = pending?.type === 'auction';
   const isBuyOfferActive = pending?.type === 'buy_offer' && isMyTurn && !!myPlayer && !myPlayer.is_bankrupt && pending.tile_id !== undefined;
+  const isTradeActive    = pending?.type === 'trade_offer' && (
+    pending.trade_from_player_id === myPlayerId || pending.trade_to_player_id === myPlayerId
+  );
   const currentNeon      = NEON[currentPlayer?.color ?? 'cyan'] ?? 'var(--neon-cyan)';
 
   const phaseLabel = (() => {
@@ -214,6 +242,18 @@ export default function GameRoomClient({
       )}
       {isBuyOfferActive && myPlayer && (
         <BuyOfferModal room={activeRoom} myPlayer={myPlayer} tileId={pending!.tile_id!} price={pending!.price ?? 0} />
+      )}
+      {pending?.type === 'income_tax_choice' && myPlayer && (
+        <TaxChoiceModal room={activeRoom} myPlayer={myPlayer} />
+      )}
+      {myPlayer && (isTradeActive || showTrade) && (
+        <TradeModal
+          room={activeRoom}
+          myPlayer={myPlayer}
+          allPlayers={activePlayers}
+          properties={activeProperties}
+          onClose={() => setShowTrade(false)}
+        />
       )}
       <TileDetailModal
         tile={selectedTile}
@@ -433,14 +473,19 @@ export default function GameRoomClient({
               {/* Panel body */}
               <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {/* Propose trade */}
-                <button style={{
+                <button
+                  onClick={() => setShowTrade(true)}
+                  disabled={!isMyTurn || activeRoom.turn_phase !== 'end'}
+                  style={{
                   width: '100%', padding: '10px 14px',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   background: 'var(--bg-raised)',
                   border: '1px solid var(--stroke-soft)',
                   borderRadius: 'var(--r-md)',
                   fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
-                  color: 'var(--text-primary)', cursor: 'pointer',
+                  color: 'var(--text-primary)',
+                  cursor: (!isMyTurn || activeRoom.turn_phase !== 'end') ? 'not-allowed' : 'pointer',
+                  opacity: (!isMyTurn || activeRoom.turn_phase !== 'end') ? 0.45 : 1,
                   transition: 'all var(--dur-fast) var(--ease-out)',
                 }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

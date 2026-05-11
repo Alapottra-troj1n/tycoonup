@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { GameRoom, Player, Property } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
-import { rollDice, endTurn, payJailFine } from '@/app/actions/game';
+import { rollDice, endTurn, payJailFine, useGoojfCard } from '@/app/actions/game';
 import PropertyManager from './PropertyManager';
 
 interface ActionPanelProps {
@@ -185,6 +185,15 @@ export default function ActionPanel({ room, myPlayer, isMyTurn, properties, allP
                         Pay $50
                       </ActionBtn>
                     )}
+                    {myPlayer.in_jail && (myPlayer.goojf_cards ?? 0) > 0 && (
+                      <ActionBtn
+                        variant="ghost"
+                        disabled={loading}
+                        onClick={() => withLoad(() => useGoojfCard(room.id, myPlayer.id))}
+                      >
+                        Use Card ({myPlayer.goojf_cards})
+                      </ActionBtn>
+                    )}
                   </div>
                 </div>
               )}
@@ -212,7 +221,7 @@ export default function ActionPanel({ room, myPlayer, isMyTurn, properties, allP
               )}
 
               {/* END TURN */}
-              {room.turn_phase === 'end' && pending?.type !== 'chest_quiz' && pending?.type !== 'auction' && (
+              {room.turn_phase === 'end' && pending?.type !== 'chest_quiz' && pending?.type !== 'auction' && pending?.type !== 'trade_offer' && (
                 <ActionBtn
                   variant={doublesTurn ? 'primary' : 'secondary'}
                   color={doublesTurn ? 'var(--neon-lime)' : undefined}

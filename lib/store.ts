@@ -31,9 +31,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setRoom: (room) => {
     const prev = get().room;
-    const isNewRoll =
+    // A new roll occurs when the game is playing and the turn phase transitions OUT of 'roll'
+    const isNewRoll = !!(
+      room.status === 'playing' &&
       room.dice_roll &&
-      (prev?.dice_roll?.[0] !== room.dice_roll[0] || prev?.dice_roll?.[1] !== room.dice_roll[1]);
+      prev?.status === 'playing' &&
+      prev.turn_phase === 'roll' &&
+      room.turn_phase !== 'roll'
+    );
     set({ room });
     if (isNewRoll) {
       set({ lastDiceRoll: room.dice_roll as [number, number], diceAnimating: true });

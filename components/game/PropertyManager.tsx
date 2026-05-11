@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { GameRoom, Player, Property } from '@/lib/types';
 import { TILES, SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
-import { upgradeProperty, mortgageProperty, unmortgageProperty } from '@/app/actions/game';
+import { upgradeProperty, downgradeProperty, mortgageProperty, unmortgageProperty } from '@/app/actions/game';
 import FlagChip from './FlagChip';
 
 interface PropertyManagerProps {
@@ -239,6 +239,7 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                     const nextRent = tile.rentLevels?.[prop.upgrade_level + 1];
                     const unmortgageCost = tile.mortgageValue ? Math.ceil(tile.mortgageValue * 1.1) : 0;
                     const canUpgrade = tile.type === 'country' && prop.upgrade_level < 4 && !prop.is_mortgaged && player.balance >= (tile.upgradePrice ?? 999);
+                    const canDowngrade = tile.type === 'country' && prop.upgrade_level > 0 && !prop.is_mortgaged;
                     const canMortgage = !prop.is_mortgaged && prop.upgrade_level === 0;
                     const canUnmortgage = prop.is_mortgaged && player.balance >= unmortgageCost;
 
@@ -308,6 +309,15 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                                 onClick={() => withLoad(`up-${prop.id}`, () => upgradeProperty(room.id, player.id, prop.tile_id))}
                               >
                                 {loadingKey === `up-${prop.id}` ? '…' : `↑ $${tile.upgradePrice}`}
+                              </PropActionBtn>
+                            )}
+                            {canDowngrade && (
+                              <PropActionBtn
+                                variant="danger"
+                                disabled={loadingKey === `down-${prop.id}`}
+                                onClick={() => withLoad(`down-${prop.id}`, () => downgradeProperty(room.id, player.id, prop.tile_id))}
+                              >
+                                {loadingKey === `down-${prop.id}` ? '…' : `↓ +$${Math.floor((tile.upgradePrice ?? 0) / 2)}`}
                               </PropActionBtn>
                             )}
                             {canMortgage && (

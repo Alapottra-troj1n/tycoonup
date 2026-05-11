@@ -207,6 +207,7 @@ export const EVENT_CARDS = [
   { message: 'Foreign Investment! Collect $150 from the bank.', amount: 150, type: 'gain' as const },
   { message: 'Global Recession! Pay $100 to the bank.', amount: -100, type: 'lose' as const },
   { message: 'Currency Devaluation! Pay $50 to each player.', amount: -50, type: 'pay_all' as const },
+  { message: 'Diplomatic Immunity! Get Out of Jail Free — keep this card until needed.', amount: 0, type: 'goojf' as const },
 ];
 
 export const STARTING_BALANCE = 1500;

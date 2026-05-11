@@ -272,6 +272,9 @@ export async function rollDice(
       return { success: true, data: { d1, d2, newPosition: 10, balanceChange: 0, message: 'Triple doubles — Jail!' } };
     }
 
+    const wasInJail = currentPlayer.in_jail;
+    let balanceChange = 0;
+
     // ── Jail logic ──
     if (currentPlayer.in_jail) {
       if (isDoubles) {
@@ -280,8 +283,9 @@ export async function rollDice(
       } else {
         const newJailTurns = currentPlayer.jail_turns + 1;
         if (newJailTurns >= JAIL_TURNS_MAX) {
-          const newBalance = Math.max(0, currentPlayer.balance - JAIL_FINE);
-          await supabase.from('players').update({ in_jail: false, jail_turns: 0, balance: newBalance }).eq('id', playerId);
+          // Fine tracked via balanceChange so the single final update handles it correctly
+          balanceChange -= JAIL_FINE;
+          await supabase.from('players').update({ in_jail: false, jail_turns: 0 }).eq('id', playerId);
           eventLog.push(log(`${currentPlayer.name} paid $${JAIL_FINE} bail and left jail.`, 'jail'));
         } else {
           await supabase.from('players').update({ jail_turns: newJailTurns }).eq('id', playerId);
@@ -301,7 +305,6 @@ export async function rollDice(
     // ── Move ──
     const oldPosition = currentPlayer.position;
     let newPosition = (oldPosition + totalRoll) % 40;
-    let balanceChange = 0;
 
     // Passed GO
     const passedGo = oldPosition + totalRoll >= 40;
@@ -315,8 +318,8 @@ export async function rollDice(
         allProperties?.find((p) => p.tile_id === tid && p.owner_id === playerId && !p.is_mortgaged),
       );
       if (ownsIndia) {
-        balanceChange += 15;
-        eventLog.push(log(`${currentPlayer.name} earned +$15 from India monopoly (GO bonus)!`, 'system'));
+        balanceChange += 10;
+        eventLog.push(log(`${currentPlayer.name} earned +$10 from India monopoly (GO bonus)!`, 'system'));
       }
     }
 
@@ -364,6 +367,20 @@ export async function rollDice(
           let rent = 0;
           if (tile.type === 'country') {
             rent = tile.rentLevels?.[prop.upgrade_level] ?? 0;
+            if (tile.set) {
+              const setTileIds = TILES.filter(t => t.set === tile.set).map(t => t.id);
+              const ownsFullSet = setTileIds.every(id =>
+                allProperties?.find(p => p.tile_id === id && p.owner_id === prop.owner_id && !p.is_mortgaged),
+              );
+              if (ownsFullSet) {
+                // Double base rent when monopoly and no upgrades (spec §8.2)
+                if (prop.upgrade_level === 0) rent *= 2;
+                // Orange monopoly: +$10 per landing (spec SET_ADVANTAGES)
+                if (tile.set === 'orange') rent += 10;
+                // Red monopoly: +$5 per upgrade level (spec SET_ADVANTAGES)
+                if (tile.set === 'red') rent += 5 * prop.upgrade_level;
+              }
+            }
           } else if (tile.type === 'transport') {
             const owned = allProperties?.filter(
               (p) => p.owner_id === prop.owner_id && [5, 15, 25, 35].includes(p.tile_id),
@@ -439,6 +456,10 @@ export async function rollDice(
             }
           }
           balanceChange -= total;
+        } else if (ev.type === 'goojf') {
+          // Get Out of Jail Free card — held by the player until used (spec §6.1)
+          const newCards = (currentPlayer.goojf_cards ?? 0) + 1;
+          await supabase.from('players').update({ goojf_cards: newCards }).eq('id', playerId);
         }
         eventLog.push(log(`Event: ${ev.message}`, 'event'));
         pendingAction = { type: 'event_result', player_id: playerId, message: ev.message };
@@ -447,20 +468,31 @@ export async function rollDice(
       }
 
       case 'tax': {
-        let tax: number;
         if (tile.taxType === 'percent') {
-          // Income Tax: 10% of current balance (rounded to nearest dollar)
-          const base = currentPlayer.balance + balanceChange;
-          tax = Math.round(base * 0.1);
+          // Income Tax: player chooses $200 flat OR 10% of net worth (spec §4.5)
+          let netWorth = currentPlayer.balance + balanceChange;
+          for (const p of allProperties?.filter(p2 => p2.owner_id === playerId) ?? []) {
+            const t = TILES[p.tile_id];
+            netWorth += t.buyPrice ?? 0;
+            if (p.upgrade_level > 0 && t.upgradePrice) netWorth += p.upgrade_level * t.upgradePrice;
+            if (p.is_mortgaged) netWorth -= t.mortgageValue ?? 0;
+          }
+          pendingAction = {
+            type: 'income_tax_choice',
+            player_id: playerId,
+            net_worth_tax: Math.round(netWorth * 0.1),
+            flat_tax: 200,
+          };
+          nextPhase = 'action';
         } else {
-          tax = tile.taxAmount ?? 0;
+          // Flat tax (Luxury Tax) — no choice
+          const tax = tile.taxAmount ?? 0;
+          const taxPaid = Math.min(tax, currentPlayer.balance + balanceChange);
+          balanceChange -= taxPaid;
+          eventLog.push(log(`${currentPlayer.name} paid $${tax}.`, 'tax'));
+          pendingAction = { type: 'tax_paid', player_id: playerId, amount: tax };
+          nextPhase = 'end';
         }
-        const taxPaid = Math.min(tax, currentPlayer.balance + balanceChange);
-        balanceChange -= taxPaid;
-        const taxLabel = tile.taxType === 'percent' ? `${tax} (10% income tax)` : `${tax}`;
-        eventLog.push(log(`${currentPlayer.name} paid $${taxLabel}.`, 'tax'));
-        pendingAction = { type: 'tax_paid', player_id: playerId, amount: tax };
-        nextPhase = 'end';
         break;
       }
 
@@ -488,22 +520,36 @@ export async function rollDice(
     // ── Bankruptcy check ──
     const finalBalance = newBalance;
     if (finalBalance <= 0) {
-      const { error: relError } = await releasePlayerProperties(supabase, roomId, playerId);
-      if (relError) return { success: false, error: relError.message };
-      
+      // When owed to another player, ALL assets transfer to them (spec §12)
+      const creditorId = pendingAction?.type === 'pay_rent' ? pendingAction.recipient_id : null;
+      if (creditorId) {
+        await supabase.from('properties')
+          .update({ owner_id: creditorId, upgrade_level: 0, is_mortgaged: false })
+          .eq('room_id', roomId).eq('owner_id', playerId);
+        const goojfToTransfer = currentPlayer.goojf_cards ?? 0;
+        if (goojfToTransfer > 0) {
+          const creditor = players?.find(p => p.id === creditorId);
+          if (creditor) {
+            await supabase.from('players').update({ goojf_cards: (creditor.goojf_cards ?? 0) + goojfToTransfer }).eq('id', creditorId);
+          }
+        }
+        const creditorName = players?.find(p => p.id === creditorId)?.name ?? 'creditor';
+        eventLog.push(log(`${currentPlayer.name}'s assets transferred to ${creditorName}.`, 'system'));
+      } else {
+        const { error: relError } = await releasePlayerProperties(supabase, roomId, playerId);
+        if (relError) return { success: false, error: relError.message };
+      }
       const { error: playerUpdateError } = await supabase.from('players').update({ is_bankrupt: true, balance: 0 }).eq('id', playerId);
       if (playerUpdateError) return { success: false, error: playerUpdateError.message };
-      
       eventLog.push(log(`${currentPlayer.name} went bankrupt!`, 'system'));
     }
 
     // ── Doubles tracking ──
     const newStreak = isDoubles ? prevStreak + 1 : 0;
-    const doublesTurn = isDoubles && nextPhase !== 'end' ? false : isDoubles;
 
     const { error: updateError } = await supabase.from('game_rooms').update({
       dice_roll: [d1, d2],
-      doubles_turn: isDoubles,
+      doubles_turn: isDoubles && !wasInJail,
       doubles_streak: newStreak,
       pending_action: pendingAction,
       turn_phase: nextPhase,
@@ -753,7 +799,18 @@ export async function answerChestQuestion(
     if (!player) return { success: false, error: 'Player not found' };
 
     const correct = answerIndex === pending.question.correctIndex;
-    const delta = correct ? pending.question.reward : -pending.question.penalty;
+    let delta = correct ? pending.question.reward : -pending.question.penalty;
+
+    // Brown (Egypt) monopoly: +10% reward, −10% penalty (spec SET_ADVANTAGES)
+    const { data: chestAllProps } = await supabase.from('properties').select('tile_id,owner_id,is_mortgaged').eq('room_id', roomId);
+    const brownTileIds = TILES.filter(t => t.set === 'brown').map(t => t.id);
+    const ownsBrown = brownTileIds.every(id =>
+      chestAllProps?.find(p => p.tile_id === id && p.owner_id === playerId && !p.is_mortgaged),
+    );
+    if (ownsBrown) {
+      delta = correct ? Math.round(delta * 1.1) : Math.round(delta * 0.9);
+    }
+
     const newBalance = Math.max(0, player.balance + delta);
 
     await supabase.from('players').update({ balance: newBalance }).eq('id', playerId);
@@ -921,9 +978,11 @@ export async function upgradeProperty(
     const supabase = createServerClient();
 
     const tile = TILES[tileId];
-    if (tile.type !== 'country' || !tile.upgradePrice) {
+    if (tile.type !== 'country' || !tile.upgradePrice || !tile.set) {
       return { success: false, error: 'Cannot upgrade this tile' };
     }
+
+    const { data: allProps } = await supabase.from('properties').select('*').eq('room_id', roomId);
 
     const { data: prop } = await supabase
       .from('properties')
@@ -936,11 +995,31 @@ export async function upgradeProperty(
     if (prop.upgrade_level >= 4) return { success: false, error: 'Already at max level' };
     if (prop.is_mortgaged) return { success: false, error: 'Cannot upgrade a mortgaged property' };
 
+    // Must own the complete color group (spec §8.4)
+    const setTileIds = TILES.filter(t => t.set === tile.set).map(t => t.id);
+    const ownsFullSet = setTileIds.every(id =>
+      allProps?.find(p => p.tile_id === id && p.owner_id === playerId && !p.is_mortgaged),
+    );
+    if (!ownsFullSet) return { success: false, error: 'Must own the complete color group to upgrade' };
+
+    // Even building rule: must be at the minimum upgrade level in the group (spec §8.4)
+    const myGroupProps = allProps?.filter(p => setTileIds.includes(p.tile_id) && p.owner_id === playerId) ?? [];
+    const minLevel = Math.min(...myGroupProps.map(p => p.upgrade_level));
+    if (prop.upgrade_level > minLevel) {
+      return { success: false, error: 'Build evenly — upgrade another property in this group first' };
+    }
+
+    // Pink monopoly: upgrade cost −$10 (spec SET_ADVANTAGES)
+    let effectivePrice = tile.upgradePrice;
+    if (tile.set === 'pink' && ownsFullSet) {
+      effectivePrice = Math.max(0, effectivePrice - 10);
+    }
+
     const { data: player } = await supabase.from('players').select('balance').eq('id', playerId).single();
-    if (!player || player.balance < tile.upgradePrice) return { success: false, error: 'Insufficient funds' };
+    if (!player || player.balance < effectivePrice) return { success: false, error: 'Insufficient funds' };
 
     await supabase.from('properties').update({ upgrade_level: prop.upgrade_level + 1 }).eq('id', prop.id);
-    await supabase.from('players').update({ balance: player.balance - tile.upgradePrice }).eq('id', playerId);
+    await supabase.from('players').update({ balance: player.balance - effectivePrice }).eq('id', playerId);
 
     const { data: room } = await supabase.from('game_rooms').select('event_log').eq('id', roomId).single();
     const newLog = [
@@ -948,6 +1027,62 @@ export async function upgradeProperty(
       log(`${tile.flag ?? ''} ${tile.name} upgraded to level ${prop.upgrade_level + 1}!`, 'buy'),
     ];
 
+    await supabase.from('game_rooms').update({ event_log: newLog.slice(-50) }).eq('id', roomId);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ──────────────────────────── downgrade property ────────────────────────────
+
+export async function downgradeProperty(
+  roomId: string,
+  playerId: string,
+  tileId: number,
+): Promise<ActionResult> {
+  try {
+    const supabase = createServerClient();
+
+    const tile = TILES[tileId];
+    if (tile.type !== 'country' || !tile.upgradePrice || !tile.set) {
+      return { success: false, error: 'Cannot downgrade this tile' };
+    }
+
+    const { data: prop } = await supabase
+      .from('properties')
+      .select('*')
+      .eq('room_id', roomId)
+      .eq('tile_id', tileId)
+      .single();
+
+    if (!prop || prop.owner_id !== playerId) return { success: false, error: 'You do not own this property' };
+    if (prop.upgrade_level <= 0) return { success: false, error: 'No upgrades to sell' };
+    if (prop.is_mortgaged) return { success: false, error: 'Property is mortgaged' };
+
+    // Even demolition rule: can only sell from the highest-level property in the group (spec §8.5)
+    const { data: allProps } = await supabase.from('properties').select('tile_id,owner_id,upgrade_level').eq('room_id', roomId);
+    const setTileIds = TILES.filter(t => t.set === tile.set).map(t => t.id);
+    const myGroupProps = allProps?.filter(p => setTileIds.includes(p.tile_id) && p.owner_id === playerId) ?? [];
+    const maxLevel = Math.max(...myGroupProps.map(p => p.upgrade_level));
+
+    if (prop.upgrade_level < maxLevel) {
+      return { success: false, error: 'Must sell from the highest-level property first (even demolition rule)' };
+    }
+
+    const sellPrice = Math.floor(tile.upgradePrice / 2);
+
+    const { data: player } = await supabase.from('players').select('balance').eq('id', playerId).single();
+    if (!player) return { success: false, error: 'Player not found' };
+
+    await supabase.from('properties').update({ upgrade_level: prop.upgrade_level - 1 }).eq('id', prop.id);
+    await supabase.from('players').update({ balance: player.balance + sellPrice }).eq('id', playerId);
+
+    const { data: room } = await supabase.from('game_rooms').select('event_log').eq('id', roomId).single();
+    const newLog = [
+      ...(room?.event_log ?? []),
+      log(`${tile.flag ?? ''} ${tile.name} downgraded to level ${prop.upgrade_level - 1}. Received $${sellPrice}.`, 'buy'),
+    ];
     await supabase.from('game_rooms').update({ event_log: newLog.slice(-50) }).eq('id', roomId);
     return { success: true };
   } catch (e) {
@@ -978,6 +1113,18 @@ export async function mortgageProperty(
     if (!prop || prop.owner_id !== playerId) return { success: false, error: 'You do not own this property' };
     if (prop.is_mortgaged) return { success: false, error: 'Already mortgaged' };
     if (prop.upgrade_level > 0) return { success: false, error: 'Sell upgrades before mortgaging' };
+
+    // Must sell ALL upgrades across the entire color group first (spec §11)
+    if (tile.set) {
+      const { data: allProps } = await supabase.from('properties').select('tile_id,owner_id,upgrade_level').eq('room_id', roomId);
+      const setTileIds = TILES.filter(t => t.set === tile.set).map(t => t.id);
+      const groupHasUpgrades = allProps?.some(
+        p => setTileIds.includes(p.tile_id) && p.owner_id === playerId && p.upgrade_level > 0,
+      );
+      if (groupHasUpgrades) {
+        return { success: false, error: 'Sell all upgrades in this color group before mortgaging' };
+      }
+    }
 
     const { data: player } = await supabase.from('players').select('balance').eq('id', playerId).single();
     if (!player) return { success: false, error: 'Player not found' };
@@ -1066,6 +1213,263 @@ export async function payJailFine(
       log(`${player.name} paid $${JAIL_FINE} bail to leave jail.`, 'jail'),
     ];
     await supabase.from('game_rooms').update({ event_log: newLog.slice(-50) }).eq('id', roomId);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ──────────────────────────── choose income tax ────────────────────────────
+
+export async function chooseTax(
+  roomId: string,
+  playerId: string,
+  choice: 'flat' | 'percent',
+): Promise<ActionResult> {
+  try {
+    const supabase = createServerClient();
+
+    const { data: room } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!room) return { success: false, error: 'Room not found' };
+
+    const pending = room.pending_action;
+    if (pending?.type !== 'income_tax_choice' || pending.player_id !== playerId) {
+      return { success: false, error: 'No active tax choice' };
+    }
+
+    const { data: player } = await supabase.from('players').select('*').eq('id', playerId).single();
+    if (!player) return { success: false, error: 'Player not found' };
+
+    const tax = choice === 'flat' ? (pending.flat_tax ?? 200) : (pending.net_worth_tax ?? 0);
+    const taxPaid = Math.min(tax, player.balance);
+    const newBalance = player.balance - taxPaid;
+
+    await supabase.from('players').update({ balance: newBalance }).eq('id', playerId);
+
+    const label = choice === 'flat' ? `$${tax} (flat)` : `$${tax} (10% net worth)`;
+    const newLog = [
+      ...(room.event_log ?? []),
+      log(`${player.name} paid ${label} income tax.`, 'tax'),
+    ];
+
+    const nextPhase = room.doubles_turn ? 'roll' : 'end';
+    await supabase.from('game_rooms').update({
+      pending_action: { type: 'tax_paid', player_id: playerId, amount: taxPaid },
+      turn_phase: nextPhase,
+      doubles_turn: false,
+      event_log: newLog.slice(-50),
+    }).eq('id', roomId);
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ──────────────────────────── use GOOJF card ────────────────────────────
+
+export async function useGoojfCard(
+  roomId: string,
+  playerId: string,
+): Promise<ActionResult> {
+  try {
+    const supabase = createServerClient();
+
+    const { data: player } = await supabase.from('players').select('*').eq('id', playerId).single();
+    if (!player) return { success: false, error: 'Player not found' };
+    if (!player.in_jail) return { success: false, error: 'Not in jail' };
+    if ((player.goojf_cards ?? 0) < 1) return { success: false, error: 'No Get Out of Jail Free card' };
+
+    await supabase.from('players').update({
+      in_jail: false,
+      jail_turns: 0,
+      goojf_cards: (player.goojf_cards ?? 1) - 1,
+    }).eq('id', playerId);
+
+    const { data: room } = await supabase.from('game_rooms').select('event_log').eq('id', roomId).single();
+    const newLog = [
+      ...(room?.event_log ?? []),
+      log(`${player.name} used a Get Out of Jail Free card!`, 'jail'),
+    ];
+    await supabase.from('game_rooms').update({ event_log: newLog.slice(-50) }).eq('id', roomId);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+// ──────────────────────────── trading ────────────────────────────
+
+export async function proposeTrade(
+  roomId: string,
+  fromPlayerId: string,
+  toPlayerId: string,
+  offerTileIds: number[],
+  offerCash: number,
+  requestTileIds: number[],
+  requestCash: number,
+): Promise<ActionResult> {
+  try {
+    const supabase = createServerClient();
+
+    const { data: room } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!room) return { success: false, error: 'Room not found' };
+    if (room.status !== 'playing') return { success: false, error: 'Game not in progress' };
+    if (room.pending_action) return { success: false, error: 'Another action is in progress' };
+
+    const { data: players } = await supabase.from('players').select('*').eq('room_id', roomId).order('turn_order');
+    const fromPlayer = players?.find(p => p.id === fromPlayerId);
+    const toPlayer   = players?.find(p => p.id === toPlayerId);
+    if (!fromPlayer || !toPlayer) return { success: false, error: 'Player not found' };
+    if (toPlayer.is_bankrupt) return { success: false, error: 'Cannot trade with a bankrupt player' };
+    if (fromPlayerId === toPlayerId) return { success: false, error: 'Cannot trade with yourself' };
+
+    // Only current player may propose
+    const currentPlayer = players?.[room.current_player_idx];
+    if (currentPlayer?.id !== fromPlayerId) return { success: false, error: 'Can only trade on your turn' };
+    if (room.turn_phase !== 'end') return { success: false, error: 'Can only trade at end of your turn' };
+
+    if (offerCash < 0 || requestCash < 0) return { success: false, error: 'Cash amounts cannot be negative' };
+    if (offerCash > fromPlayer.balance) return { success: false, error: 'Insufficient cash to offer' };
+
+    const { data: allProps } = await supabase.from('properties').select('*').eq('room_id', roomId);
+
+    // Validate offer properties — must own them and have no upgrades (spec §10)
+    for (const tileId of offerTileIds) {
+      const p = allProps?.find(pr => pr.tile_id === tileId && pr.owner_id === fromPlayerId);
+      if (!p) return { success: false, error: `You do not own tile ${TILES[tileId]?.name}` };
+      if (p.upgrade_level > 0) return { success: false, error: `Sell upgrades on ${TILES[tileId]?.name} before trading` };
+    }
+
+    // Validate request properties — target must own them and have no upgrades
+    for (const tileId of requestTileIds) {
+      const p = allProps?.find(pr => pr.tile_id === tileId && pr.owner_id === toPlayerId);
+      if (!p) return { success: false, error: `${toPlayer.name} does not own tile ${TILES[tileId]?.name}` };
+      if (p.upgrade_level > 0) return { success: false, error: `${TILES[tileId]?.name} has upgrades — must sell first` };
+    }
+
+    const tradePending: import('@/lib/types').PendingAction = {
+      type: 'trade_offer',
+      player_id: toPlayerId,
+      trade_from_player_id: fromPlayerId,
+      trade_from_player_name: fromPlayer.name,
+      trade_to_player_id: toPlayerId,
+      trade_to_player_name: toPlayer.name,
+      trade_offer_tile_ids: offerTileIds,
+      trade_offer_cash: offerCash,
+      trade_request_tile_ids: requestTileIds,
+      trade_request_cash: requestCash,
+    };
+
+    const newLog = [
+      ...(room.event_log ?? []),
+      log(`${fromPlayer.name} proposed a trade to ${toPlayer.name}.`, 'system'),
+    ];
+
+    await supabase.from('game_rooms').update({
+      pending_action: tradePending,
+      event_log: newLog.slice(-50),
+    }).eq('id', roomId);
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+export async function acceptTrade(roomId: string, playerId: string): Promise<ActionResult> {
+  try {
+    const supabase = createServerClient();
+
+    const { data: room } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!room) return { success: false, error: 'Room not found' };
+
+    const pending = room.pending_action;
+    if (pending?.type !== 'trade_offer') return { success: false, error: 'No active trade offer' };
+    if (pending.trade_to_player_id !== playerId) return { success: false, error: 'Not your trade to accept' };
+
+    const fromId = pending.trade_from_player_id!;
+    const toId   = pending.trade_to_player_id!;
+
+    const { data: players } = await supabase.from('players').select('*').eq('room_id', roomId);
+    const fromPlayer = players?.find(p => p.id === fromId);
+    const toPlayer   = players?.find(p => p.id === toId);
+    if (!fromPlayer || !toPlayer) return { success: false, error: 'Player not found' };
+
+    const offerCash   = pending.trade_offer_cash   ?? 0;
+    const requestCash = pending.trade_request_cash ?? 0;
+
+    if (fromPlayer.balance < offerCash) return { success: false, error: 'Proposer no longer has enough cash' };
+    if (toPlayer.balance < requestCash)  return { success: false, error: 'You no longer have enough cash' };
+
+    const { data: allProps } = await supabase.from('properties').select('*').eq('room_id', roomId);
+
+    // Re-validate ownership
+    for (const tileId of pending.trade_offer_tile_ids ?? []) {
+      if (!allProps?.find(p => p.tile_id === tileId && p.owner_id === fromId)) {
+        return { success: false, error: 'Proposer no longer owns all offered properties' };
+      }
+    }
+    for (const tileId of pending.trade_request_tile_ids ?? []) {
+      if (!allProps?.find(p => p.tile_id === tileId && p.owner_id === toId)) {
+        return { success: false, error: 'You no longer own all requested properties' };
+      }
+    }
+
+    // Transfer offered properties to toPlayer
+    for (const tileId of pending.trade_offer_tile_ids ?? []) {
+      await supabase.from('properties').update({ owner_id: toId }).eq('room_id', roomId).eq('tile_id', tileId);
+    }
+    // Transfer requested properties to fromPlayer
+    for (const tileId of pending.trade_request_tile_ids ?? []) {
+      await supabase.from('properties').update({ owner_id: fromId }).eq('room_id', roomId).eq('tile_id', tileId);
+    }
+
+    // Exchange cash
+    await supabase.from('players').update({ balance: fromPlayer.balance - offerCash + requestCash }).eq('id', fromId);
+    await supabase.from('players').update({ balance: toPlayer.balance  - requestCash + offerCash }).eq('id', toId);
+
+    const newLog = [
+      ...(room.event_log ?? []),
+      log(`Trade accepted! ${fromPlayer.name} ↔ ${toPlayer.name}.`, 'buy'),
+    ];
+
+    await supabase.from('game_rooms').update({
+      pending_action: null,
+      event_log: newLog.slice(-50),
+    }).eq('id', roomId);
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: (e as Error).message };
+  }
+}
+
+export async function rejectTrade(roomId: string, playerId: string): Promise<ActionResult> {
+  try {
+    const supabase = createServerClient();
+
+    const { data: room } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!room) return { success: false, error: 'Room not found' };
+
+    const pending = room.pending_action;
+    if (pending?.type !== 'trade_offer') return { success: false, error: 'No active trade offer' };
+    // Either the recipient (reject) or the proposer (cancel) may clear the offer
+    if (pending.trade_to_player_id !== playerId && pending.trade_from_player_id !== playerId) {
+      return { success: false, error: 'Not your trade' };
+    }
+
+    const { data: player } = await supabase.from('players').select('name').eq('id', playerId).single();
+    const newLog = [
+      ...(room.event_log ?? []),
+      log(`${player?.name ?? 'Player'} ${pending.trade_from_player_id === playerId ? 'cancelled' : 'rejected'} the trade.`, 'system'),
+    ];
+
+    await supabase.from('game_rooms').update({
+      pending_action: null,
+      event_log: newLog.slice(-50),
+    }).eq('id', roomId);
+
     return { success: true };
   } catch (e) {
     return { success: false, error: (e as Error).message };

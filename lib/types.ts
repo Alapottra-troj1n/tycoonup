@@ -50,6 +50,7 @@ export interface Player {
   is_bankrupt: boolean;
   turn_order: number;
   is_bot?: boolean;
+  goojf_cards?: number; // Get Out of Jail Free cards held (spec §7 Option C)
 }
 
 export interface Property {
@@ -78,7 +79,9 @@ export type PendingActionType =
   | 'event_result'
   | 'tax_paid'
   | 'doubles_roll'
-  | 'auction';
+  | 'auction'
+  | 'income_tax_choice'   // spec §4.5: player chooses flat $200 or 10% net worth
+  | 'trade_offer';        // spec §10: peer-to-peer property + cash trade
 
 export interface PendingAction {
   type: PendingActionType;
@@ -94,6 +97,18 @@ export interface PendingAction {
   highest_bidder_id?: string | null;
   highest_bidder_name?: string | null;
   expires_at?: number;
+  // Income tax choice (spec §4.5)
+  net_worth_tax?: number;
+  flat_tax?: number;
+  // Trade offer (spec §10)
+  trade_from_player_id?: string;
+  trade_from_player_name?: string;
+  trade_to_player_id?: string;
+  trade_to_player_name?: string;
+  trade_offer_tile_ids?: number[];
+  trade_offer_cash?: number;
+  trade_request_tile_ids?: number[];
+  trade_request_cash?: number;
 }
 
 export interface GameRoom {
