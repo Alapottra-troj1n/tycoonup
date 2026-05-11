@@ -197,7 +197,6 @@ export default function BoardView({
           gridTemplateColumns: `${CORNER_SIZE}px repeat(9, ${TILE_SIZE}px) ${CORNER_SIZE}px`,
           gridTemplateRows: `${CORNER_SIZE}px repeat(9, ${TILE_SIZE}px) ${CORNER_SIZE}px`,
           background: 'radial-gradient(ellipse at center, oklch(0.22 0.025 255) 0%, oklch(0.15 0.018 255) 100%)',
-          border: '1px solid var(--stroke-soft)',
           borderRadius: 18,
           padding: 6,
           gap: 2,
@@ -336,49 +335,54 @@ export default function BoardView({
                 </div>
               )}
 
-              {/* Action button */}
-              {showActionBtn && (
-                <button
-                  disabled={isRollLoading || isEndLoading}
-                  onClick={showRollBtn ? onRoll : onEndTurn}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    padding: '14px 28px',
-                    fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15,
-                    letterSpacing: '-0.01em',
-                    background: showRollBtn
-                      ? 'linear-gradient(180deg, var(--neon-cyan) 0%, oklch(0.60 0.12 210) 100%)'
-                      : doublesRolled
-                        ? 'linear-gradient(180deg, var(--neon-lime) 0%, oklch(0.62 0.13 145) 100%)'
-                        : 'var(--bg-raised)',
-                    color: (showRollBtn || doublesRolled) ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)',
-                    border: (showRollBtn || doublesRolled) ? 'none' : '1px solid var(--stroke-soft)',
-                    borderRadius: 10,
-                    cursor: (isRollLoading || isEndLoading) ? 'not-allowed' : 'pointer',
-                    opacity: (isRollLoading || isEndLoading) ? 0.6 : 1,
-                    boxShadow: showRollBtn
-                      ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.76 0.12 210 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
-                      : doublesRolled
-                        ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.77 0.13 145 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
-                        : 'var(--shadow-sm)',
-                    transition: 'all var(--dur-fast) var(--ease-out)',
-                    marginTop: 8,
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  {showRollBtn ? (
-                    <>
-                      <DiceIcon size={16} color="oklch(0.12 0.02 260)"/>
-                      {isRollLoading ? 'Rolling…' : 'Roll Dice'}
-                    </>
-                  ) : (
-                    <>
-                      <ArrowIcon size={14} color={doublesRolled ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)'}/>
-                      {isEndLoading ? 'Ending…' : doublesRolled ? 'Roll again (doubles)' : 'End Turn'}
-                    </>
-                  )}
-                </button>
-              )}
+              {/* Action button — doubles styling/label only revealed after animation ends */}
+              {showActionBtn && (() => {
+                // While dice are still spinning, treat doubles as false so nothing
+                // reveals the result before the animation finishes.
+                const revealedDoubles = doublesRolled && !diceAnimating;
+                return (
+                  <button
+                    disabled={isRollLoading || isEndLoading}
+                    onClick={showRollBtn ? onRoll : onEndTurn}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      padding: '14px 28px',
+                      fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15,
+                      letterSpacing: '-0.01em',
+                      background: showRollBtn
+                        ? 'linear-gradient(180deg, var(--neon-cyan) 0%, oklch(0.60 0.12 210) 100%)'
+                        : revealedDoubles
+                          ? 'linear-gradient(180deg, var(--neon-lime) 0%, oklch(0.62 0.13 145) 100%)'
+                          : 'var(--bg-raised)',
+                      color: (showRollBtn || revealedDoubles) ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)',
+                      border: (showRollBtn || revealedDoubles) ? 'none' : '1px solid var(--stroke-soft)',
+                      borderRadius: 10,
+                      cursor: (isRollLoading || isEndLoading) ? 'not-allowed' : 'pointer',
+                      opacity: (isRollLoading || isEndLoading) ? 0.6 : 1,
+                      boxShadow: showRollBtn
+                        ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.76 0.12 210 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
+                        : revealedDoubles
+                          ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.77 0.13 145 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
+                          : 'var(--shadow-sm)',
+                      transition: 'all var(--dur-fast) var(--ease-out)',
+                      marginTop: 8,
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    {showRollBtn ? (
+                      <>
+                        <DiceIcon size={16} color="oklch(0.12 0.02 260)"/>
+                        {isRollLoading ? 'Rolling…' : 'Roll Dice'}
+                      </>
+                    ) : (
+                      <>
+                        <ArrowIcon size={14} color={revealedDoubles ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)'}/>
+                        {isEndLoading ? 'Ending…' : revealedDoubles ? 'Roll again (doubles)' : 'End Turn'}
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

@@ -4,6 +4,21 @@ import FlagChip from './FlagChip';
 import type { Tile, Player, Property } from '@/lib/types';
 import { SET_COLORS } from '@/lib/game-data';
 
+const SHORT_NAMES: Record<string, string> = {
+  'Ransom to Underworld': 'R. Underworld',
+  'Rio de Janeiro': 'Rio de Jan.',
+  'Global Airways': 'Gl. Airways',
+  'Maritime Hub': 'Mar. Hub',
+  'Free Parking': 'Free Park.',
+  'Global Event': 'Gl. Event',
+  'Income Tax': 'Inc. Tax',
+  'Go To Jail': 'Go To Jail',
+  'World Chest': 'World Chest',
+  'Global Bank': 'Gl. Bank',
+  'Los Angeles': 'L. Angeles',
+  'Trade Route': 'Trade Route',
+};
+
 type TileSide = 'bottom' | 'left' | 'top' | 'right' | 'corner';
 
 interface TileCellProps {
@@ -70,11 +85,11 @@ function CornerTile({ tile, playersOnTile }: { tile: Tile; playersOnTile: Player
     }}>
       <div style={{ fontSize: 24 }}>{CORNER_ICONS[tile.id] ?? '?'}</div>
       <div style={{
-        fontFamily: 'var(--font-mono)', fontSize: 8, textTransform: 'uppercase',
+        fontFamily: 'var(--font-mono)', fontSize: 9, textTransform: 'uppercase',
         letterSpacing: '0.07em', color: 'var(--text-muted)', textAlign: 'center',
         lineHeight: 1.2, padding: '0 4px',
       }}>
-        {tile.name}
+        {SHORT_NAMES[tile.name] || tile.name}
       </div>
       {playersOnTile.length > 0 && (
         <div style={{
@@ -206,23 +221,23 @@ export default function TileCell({
 
         {/* Tile name */}
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 7, textAlign: 'center',
+          fontFamily: 'var(--font-mono)', fontSize: 8.5, textAlign: 'center',
           color: isMortgaged ? 'var(--text-faint)' : 'var(--text-secondary)',
-          lineHeight: 1.2, letterSpacing: '0.02em',
-          maxWidth: '90%',
+          lineHeight: 1.1, letterSpacing: '0.01em',
+          maxWidth: '95%',
           display: '-webkit-box',
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical',
           overflow: 'hidden',
           wordBreak: 'break-word',
         }}>
-          {tile.name}
+          {SHORT_NAMES[tile.name] || tile.name}
         </div>
 
         {/* Price (only when unowned country/transport/utility) */}
         {tile.buyPrice && !isOwned && (
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 7,
+            fontFamily: 'var(--font-mono)', fontSize: 8,
             color: 'var(--text-faint)', letterSpacing: '0.02em',
           }}>
             ${tile.buyPrice}

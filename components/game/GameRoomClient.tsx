@@ -12,7 +12,7 @@ import BoardView from './BoardView';
 import ActionPanel from './ActionPanel';
 import EventLog from './EventLog';
 import PlayerCard from './PlayerCard';
-import DiceOverlay from './DiceOverlay';
+
 import ChestModal from './ChestModal';
 import AuctionModal from './AuctionModal';
 import WinScreen from './WinScreen';
@@ -205,7 +205,6 @@ export default function GameRoomClient({
   return (
     <div className="tu-backdrop" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
       {/* ── Overlays ── */}
-      <DiceOverlay roll={lastDiceRoll} animating={diceAnimating} playerName={diceAnimating ? currentPlayer?.name : undefined} />
 
       {isChestActive && myPlayer && (
         <ChestModal room={activeRoom} playerId={myPlayerId} question={pending!.question!} isActivePlayer={isChestForMe} />
