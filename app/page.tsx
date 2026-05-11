@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Suspense } from 'react';
@@ -18,6 +18,55 @@ const NEON_COLORS: Record<string, string> = {
   violet:  'var(--neon-violet)',
   rose:    'var(--neon-rose)',
 };
+
+const FLOAT_ICONS = ['💰', '🏦', '✈️', '🌍', '🚀', '💎', '🏴‍☠️', '🎲', '💵', '🌐', '🏙️', '⚡'];
+
+function FloatingIcons() {
+  const [items, setItems] = useState<Array<{ id: number; icon: string; x: number; delay: number; duration: number; size: number; opacity: number }>>([]);
+
+  useEffect(() => {
+    const generated = Array.from({ length: 22 }, (_, i) => ({
+      id: i,
+      icon: FLOAT_ICONS[i % FLOAT_ICONS.length],
+      x: Math.random() * 100,
+      delay: Math.random() * 12,
+      duration: 12 + Math.random() * 16,
+      size: 16 + Math.random() * 24,
+      opacity: 0.06 + Math.random() * 0.10,
+    }));
+    setItems(generated);
+  }, []);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0,
+    }}>
+      {items.map((item) => (
+        <motion.span
+          key={item.id}
+          style={{
+            position: 'absolute',
+            left: `${item.x}%`,
+            bottom: '-60px',
+            fontSize: item.size,
+            opacity: item.opacity,
+            userSelect: 'none',
+            filter: 'blur(0.4px)',
+          }}
+          animate={{ y: [0, -(window?.innerHeight ?? 900) - 100] }}
+          transition={{
+            duration: item.duration,
+            delay: item.delay,
+            repeat: Infinity,
+            ease: 'linear',
+          }}
+        >
+          {item.icon}
+        </motion.span>
+      ))}
+    </div>
+  );
+}
 
 function PlayerToken({ color, size = 36 }: { color: string; size?: number }) {
   const c = NEON_COLORS[color] || 'var(--neon-cyan)';
@@ -43,7 +92,7 @@ function PlayerToken({ color, size = 36 }: { color: string; size?: number }) {
 
 function ColorPicker({ selected, onSelect }: { selected: PlayerColor; onSelect: (c: PlayerColor) => void }) {
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       {ALL_PLAYER_COLORS.map((c) => {
         const isSelected = selected === c;
         return (
@@ -52,22 +101,25 @@ function ColorPicker({ selected, onSelect }: { selected: PlayerColor; onSelect: 
             onClick={() => onSelect(c as PlayerColor)}
             title={c}
             style={{
-              width: isSelected ? 44 : 38,
-              height: isSelected ? 44 : 38,
+              /* Fixed 44×44 box — no size change on select, zero layout shift */
+              width: 44,
+              height: 44,
+              flexShrink: 0,
               borderRadius: '50%',
               border: 'none',
               padding: 0,
               background: 'transparent',
               cursor: 'pointer',
-              transform: isSelected ? 'scale(1.1)' : 'scale(1)',
-              transition: 'transform var(--dur-fast) var(--ease-out), width var(--dur-fast), height var(--dur-fast)',
-              outline: 'none',
+              transition: 'transform var(--dur-fast) var(--ease-out)',
+              transform: isSelected ? 'scale(1.18)' : 'scale(1)',
+              outline: isSelected ? `2px solid ${NEON_COLORS[c] ?? 'var(--neon-cyan)'}` : 'none',
+              outlineOffset: 2,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <PlayerToken color={c} size={isSelected ? 40 : 34} />
+            <PlayerToken color={c} size={34} />
           </button>
         );
       })}
@@ -138,13 +190,24 @@ function HomeContent() {
     setError(null);
     try {
       const res = await createRoom(name.trim(), color);
-      if (!res.success || !res.data) { setError(res.error ?? 'Failed to create room'); return; }
+      if (!res.success || !res.data) {
+        const msg = res.error ?? 'Failed to create room';
+        setError(
+          msg.toLowerCase().includes('fetch failed')
+            ? 'Cannot reach the game server. Check your internet connection and try again.'
+            : msg
+        );
+        return;
+      }
       await fetch('/api/set-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomCode: res.data.roomCode, playerId: res.data.playerId }),
       });
       router.push(`/${res.data.roomCode}`);
+    } catch (e) {
+      setError('An unexpected error occurred. Please try again.');
+      console.error(e);
     } finally { setLoading(false); }
   }
 
@@ -155,21 +218,33 @@ function HomeContent() {
     setError(null);
     try {
       const res = await joinRoom(roomCode.trim().toUpperCase(), name.trim(), color);
-      if (!res.success || !res.data) { setError(res.error ?? 'Failed to join room'); return; }
+      if (!res.success || !res.data) {
+        const msg = res.error ?? 'Failed to join room';
+        setError(
+          msg.toLowerCase().includes('fetch failed')
+            ? 'Cannot reach the game server. Check your internet connection and try again.'
+            : msg
+        );
+        return;
+      }
       await fetch('/api/set-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomCode: roomCode.trim().toUpperCase(), playerId: res.data.playerId }),
       });
       router.push(`/${roomCode.trim().toUpperCase()}`);
+    } catch (e) {
+      setError('An unexpected error occurred. Please try again.');
+      console.error(e);
     } finally { setLoading(false); }
   }
 
   return (
-    <div className="tu-backdrop" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '48px 16px' }}>
+    <div className="tu-backdrop" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '48px 16px', position: 'relative' }}>
+      <FloatingIcons />
       {/* Logo + headline */}
       <motion.div
-        style={{ marginBottom: 48, textAlign: 'center' }}
+        style={{ marginBottom: 48, textAlign: 'center', position: 'relative', zIndex: 1 }}
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
@@ -215,6 +290,7 @@ function HomeContent() {
       </motion.div>
 
       {/* Action card */}
+      <div style={{ position: 'relative', zIndex: 1, width: '100%', display: 'flex', justifyContent: 'center' }}>
       <AnimatePresence mode="wait">
         {mode === 'home' && (
           <motion.div
@@ -364,6 +440,7 @@ function HomeContent() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }

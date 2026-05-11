@@ -98,13 +98,15 @@ body {
 
 ::selection { background: var(--neon-cyan-dim); color: white; }
 
-/* Subtle grid backdrop on app surface */
+/* Gradient backdrop on app surface */
 .tu-backdrop {
   position: relative;
   min-height: 100vh;
   background:
-    radial-gradient(ellipse at 20% 0%, oklch(0.24 0.05 270 / 0.20), transparent 55%),
-    radial-gradient(ellipse at 80% 100%, oklch(0.24 0.05 215 / 0.16), transparent 55%),
+    radial-gradient(ellipse 80% 50% at 15%   5%,  oklch(0.28 0.08 265 / 0.30), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 100%,  oklch(0.26 0.09 200 / 0.25), transparent 55%),
+    radial-gradient(ellipse 40% 30% at 50%  50%,  oklch(0.22 0.06 290 / 0.15), transparent 70%),
+    radial-gradient(ellipse 35% 25% at 90%  10%,  oklch(0.25 0.07  72 / 0.12), transparent 60%),
     var(--bg-abyss);
 }
 .tu-backdrop::before {
@@ -112,8 +114,8 @@ body {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(oklch(1 0 0 / 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(1 0 0 / 0.015) 1px, transparent 1px);
+    linear-gradient(oklch(1 0 0 / 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / 0.018) 1px, transparent 1px);
   background-size: 48px 48px;
   pointer-events: none;
   mask-image: radial-gradient(ellipse at center, black 40%, transparent 85%);
