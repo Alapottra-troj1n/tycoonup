@@ -83,7 +83,7 @@ export default function DiceOverlay({ roll, animating, playerName }: DiceOverlay
 
   return (
     <AnimatePresence>
-      {(roll || animating) && (
+      {animating && (
         <motion.div
           style={{
             position: 'fixed', inset: 0, zIndex: 50,
