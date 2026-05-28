@@ -16,6 +16,8 @@ interface BoardViewProps {
   turnPhase?: string;
   currentPlayerName?: string;
   currentPlayerColor?: string;
+  diceRollerName?: string;   // who actually last rolled
+  diceRollerColor?: string;  // their color
   doublesRolled?: boolean;
   onRoll?: () => void;
   onEndTurn?: () => void;
@@ -117,6 +119,8 @@ export default function BoardView({
   turnPhase,
   currentPlayerName,
   currentPlayerColor,
+  diceRollerName,
+  diceRollerColor,
   doublesRolled = false,
   onRoll,
   onEndTurn,
@@ -174,6 +178,10 @@ export default function BoardView({
     amber: 'var(--neon-amber)', violet: 'var(--neon-violet)', rose: 'var(--neon-rose)',
   };
   const playerNeon = NEON[currentPlayerColor ?? ''] ?? 'var(--neon-cyan)';
+  // Roller neon: use diceRollerColor when available, fallback to currentPlayerColor
+  const rollerNeon = NEON[diceRollerColor ?? currentPlayerColor ?? ''] ?? 'var(--neon-cyan)';
+  // The label for who rolled — prefer diceRollerName, fallback to currentPlayerName
+  const rollerLabel = diceRollerName ?? currentPlayerName;
 
   // Which action button to show in board center
   const showRollBtn   = isMyTurn && turnPhase === 'roll'  && !!onRoll;
@@ -248,7 +256,7 @@ export default function BoardView({
             </div>
 
             {/* "Player rolling" badge — top of center, absolutely positioned */}
-            {(diceAnimating && currentPlayerName) && (
+            {(diceAnimating && rollerLabel) && (
               <div style={{
                 position: 'absolute',
                 top: 18,
@@ -261,15 +269,15 @@ export default function BoardView({
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: '6px 14px',
                   background: 'oklch(0.21 0.024 255 / 0.92)',
-                  border: `1px solid ${playerNeon}80`,
+                  border: `1px solid ${rollerNeon}80`,
                   borderRadius: 999,
                   fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase',
-                  color: playerNeon,
-                  boxShadow: `0 0 20px ${playerNeon}66`,
+                  color: rollerNeon,
+                  boxShadow: `0 0 20px ${rollerNeon}66`,
                   whiteSpace: 'nowrap',
                 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: playerNeon, boxShadow: `0 0 6px ${playerNeon}` }}/>
-                  {currentPlayerName} rolling
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: rollerNeon, boxShadow: `0 0 6px ${rollerNeon}` }}/>
+                  {rollerLabel} rolling
                 </div>
               </div>
             )}
@@ -294,12 +302,15 @@ export default function BoardView({
               {/* Roll info — hidden while animating */}
               {!diceAnimating && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                  {currentPlayerName && (
+                  {lastDice && rollerLabel && (
                     <div style={{
                       fontFamily: 'var(--font-mono)', fontSize: 10,
                       color: 'var(--text-muted)', letterSpacing: '0.2em', textTransform: 'uppercase',
                     }}>
-                      {currentPlayerName} rolled
+                      {/* If it's my turn and we're in the roll phase, show a "now it's your turn" hint */}
+                      {isMyTurn && turnPhase === 'roll'
+                        ? <><span style={{ color: rollerNeon }}>{rollerLabel}</span> rolled — now it&apos;s your turn!</>
+                        : <><span style={{ color: rollerNeon }}>{rollerLabel}</span> rolled</>}
                     </div>
                   )}
                   {lastDice && (

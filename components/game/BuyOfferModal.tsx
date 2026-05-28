@@ -7,6 +7,7 @@ import { TILES, SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
 import { formatMoney, getSetOwnerCount } from '@/lib/utils';
 import { buyProperty, skipBuy } from '@/app/actions/game';
 import FlagChip from './FlagChip';
+import { playBuySuccess, playSkip, playClick } from '@/lib/sounds';
 interface BuyOfferModalProps {
   room: GameRoom;
   myPlayer: Player;
@@ -35,16 +36,20 @@ export default function BuyOfferModal({ room, myPlayer, tileId, price, allProper
   async function handleBuy() {
     setLoading(true);
     setError(null);
+    playClick();
     const res = await buyProperty(room.id, myPlayer.id, tileId);
     if (!res.success) setError(res.error ?? 'Purchase failed');
+    else playBuySuccess();
     setLoading(false);
   }
 
   async function handleSkip() {
     setLoading(true);
     setError(null);
+    playClick();
     const res = await skipBuy(room.id, myPlayer.id);
     if (!res.success) setError(res.error ?? 'Failed to skip');
+    else playSkip();
     setLoading(false);
   }
 

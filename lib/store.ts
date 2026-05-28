@@ -48,7 +48,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ room });
     if (isNewRoll) {
       set({ lastDiceRoll: room.dice_roll as [number, number], diceAnimating: true });
-      setTimeout(() => set({ diceAnimating: false }), 2000);
+      setTimeout(() => set({ diceAnimating: false }), 2500);
     } else if (isTurnChange) {
       // Clear stale dice from the previous player's turn so the board shows "waiting" state
       set({ lastDiceRoll: null });
@@ -81,7 +81,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   triggerDiceRoll: (roll) => {
     set({ lastDiceRoll: roll, diceAnimating: true });
-    setTimeout(() => set({ diceAnimating: false }), 2000);
+    setTimeout(() => set({ diceAnimating: false }), 2500);
   },
 
   stopDiceAnimation: () => set({ diceAnimating: false }),

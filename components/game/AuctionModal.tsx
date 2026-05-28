@@ -7,6 +7,7 @@ import { TILES, SET_COLORS } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
 import { placeBid, resolveAuction } from '@/app/actions/game';
 import FlagChip from './FlagChip';
+import { playBidPlaced, playClick } from '@/lib/sounds';
 
 const NEON: Record<string, string> = {
   cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
@@ -54,11 +55,12 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
 
   async function handleBid() {
     if (!canBid) return;
+    playClick();
     setLoading(true);
     setError(null);
     const res = await placeBid(room.id, myPlayer.id, parsedBid);
     if (!res.success) setError(res.error ?? 'Bid failed');
-    else setBidInput('');
+    else { setBidInput(''); playBidPlaced(); }
     setLoading(false);
   }
 

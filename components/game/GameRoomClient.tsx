@@ -7,6 +7,11 @@ import { getSupabaseClient } from '@/lib/supabase';
 import { TILES, PLAYER_COLOR_MAP } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
 import { rollDice, buyProperty, skipBuy, answerChestQuestion, endTurn, chooseTax, rejectTrade } from '@/app/actions/game';
+import {
+  playDiceRoll, playTokenMove, playGameStart, playAuctionStart,
+  playChestOpen, playTurnStart, playClick, playBuySuccess, playSkip, playTax, playWin,
+  getMasterVolume, setMasterVolume,
+} from '@/lib/sounds';
 import Lobby from './Lobby';
 import BoardView from './BoardView';
 import ActionPanel from './ActionPanel';
@@ -74,6 +79,23 @@ export default function GameRoomClient({
   const [turnAnnounce, setTurnAnnounce] = useState<{
     name: string; color: string; isMe: boolean; isBot: boolean; key: number;
   } | null>(null);
+  // Track who actually last rolled (may differ from currentPlayer during action/end phases)
+  const [diceRollerName, setDiceRollerName] = useState<string | null>(null);
+  const [diceRollerColor, setDiceRollerColor] = useState<string>('cyan');
+  // Volume: 'full' | 'half' | 'mute'
+  const [sfxLevel, setSfxLevel] = useState<'full' | 'half' | 'mute'>(() => {
+    const v = getMasterVolume();
+    if (v <= 0) return 'mute';
+    if (v <= 0.3) return 'half';
+    return 'full';
+  });
+
+  function cycleVolume() {
+    const next = sfxLevel === 'full' ? 'half' : sfxLevel === 'half' ? 'mute' : 'full';
+    setSfxLevel(next);
+    setMasterVolume(next === 'full' ? 0.55 : next === 'half' ? 0.22 : 0);
+    if (next !== 'mute') playClick();
+  }
 
   const playersRef = useRef<Player[]>(initialPlayers);
   const prevCurrentPlayerIdRef = useRef<string | undefined>(undefined);
@@ -115,6 +137,23 @@ export default function GameRoomClient({
     supabase.from('players').select('*').eq('room_id', initialRoom.id).order('turn_order')
       .then(({ data }) => { if (data && data.length > 0) setPlayers(data as Player[]); });
   }, [activeStatus, activeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When a new dice roll is detected (diceAnimating just turned true), snapshot who rolled + play SFX
+  const prevDiceAnimatingRef = useRef(false);
+  useEffect(() => {
+    if (diceAnimating && !prevDiceAnimatingRef.current) {
+      // Dice animation just started — capture the current player as the roller
+      const activeRoom = room ?? initialRoom;
+      const sorted = playersRef.current.slice().sort((a, b) => a.turn_order - b.turn_order);
+      const cp = sorted[activeRoom.current_player_idx];
+      if (cp) {
+        setDiceRollerName(cp.name);
+        setDiceRollerColor(cp.color);
+      }
+      playDiceRoll();
+    }
+    prevDiceAnimatingRef.current = diceAnimating;
+  }, [diceAnimating]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const activeRoom = room ?? initialRoom;
@@ -187,6 +226,7 @@ export default function GameRoomClient({
       isBot: cp.is_bot ?? false,
       key: Date.now(),
     });
+    playTurnStart();
     const timer = setTimeout(() => setTurnAnnounce(null), 2300);
     return () => clearTimeout(timer);
   }, [(room ?? initialRoom).current_player_idx]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -195,6 +235,51 @@ export default function GameRoomClient({
   useEffect(() => {
     if (diceAnimating) setTurnAnnounce(null);
   }, [diceAnimating]);
+
+  // ── Sound effects driven by room state changes ──────────────────────────────
+  const prevStatusRef = useRef<string | undefined>(undefined);
+  const prevPendingTypeRef = useRef<string | undefined>(undefined);
+  const prevPlayerPositionsRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    const activeRoom = room ?? initialRoom;
+    const status = activeRoom.status;
+    const pendingType = activeRoom.pending_action?.type;
+
+    // Game just started
+    if (prevStatusRef.current === 'lobby' && status === 'playing') playGameStart();
+    // Game finished
+    if (prevStatusRef.current === 'playing' && status === 'finished') playWin();
+    prevStatusRef.current = status;
+
+    // Auction started
+    if (prevPendingTypeRef.current !== 'auction' && pendingType === 'auction') playAuctionStart();
+    // Chest opened
+    if (prevPendingTypeRef.current !== 'chest_quiz' && pendingType === 'chest_quiz') playChestOpen();
+    // Tax
+    if (prevPendingTypeRef.current !== 'income_tax_choice' && pendingType === 'income_tax_choice') playTax();
+    prevPendingTypeRef.current = pendingType;
+  }, [
+    (room ?? initialRoom).status,
+    (room ?? initialRoom).pending_action?.type,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Token move sounds — fire once per tile as player position changes
+  useEffect(() => {
+    const activePlayers = (players.length > 0 ? players : initialPlayers);
+    activePlayers.forEach((p) => {
+      const prev = prevPlayerPositionsRef.current[p.id];
+      if (prev !== undefined && prev !== p.position) {
+        // Calculate steps moved (wrapping around board of 40 tiles)
+        const steps = (p.position - prev + 40) % 40;
+        // Stagger a tick sound per step
+        for (let s = 0; s < Math.min(steps, 12); s++) {
+          setTimeout(() => playTokenMove(), s * 140);
+        }
+      }
+      prevPlayerPositionsRef.current[p.id] = p.position;
+    });
+  }, [players]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeRoom       = room ?? initialRoom;
   const activePlayers    = (players.length > 0 ? players : initialPlayers).slice().sort((a, b) => a.turn_order - b.turn_order);
@@ -205,6 +290,7 @@ export default function GameRoomClient({
 
   async function handleRoll() {
     if (!myPlayer || rollLoading) return;
+    playClick();
     setRollLoading(true);
     try { await rollDice(activeRoom.id, myPlayer.id); } catch { /* handled by server action */ }
     finally { setRollLoading(false); }
@@ -212,6 +298,7 @@ export default function GameRoomClient({
 
   async function handleEndTurn() {
     if (!myPlayer || endLoading) return;
+    playClick();
     setEndLoading(true);
     try { await endTurn(activeRoom.id, myPlayer.id); } catch { /* handled by server action */ }
     finally { setEndLoading(false); }
@@ -226,11 +313,11 @@ export default function GameRoomClient({
   }
 
   const pending          = activeRoom.pending_action;
-  const isChestActive    = pending?.type === 'chest_quiz' && !!pending.question;
+  const isChestActive    = pending?.type === 'chest_quiz' && !!pending.question && !diceAnimating;
   const isChestForMe     = pending?.player_id === myPlayerId;
-  const isAuctionActive  = pending?.type === 'auction';
-  const isBuyOfferActive = pending?.type === 'buy_offer' && isMyTurn && !!myPlayer && !myPlayer.is_bankrupt && pending.tile_id !== undefined;
-  const isTradeActive    = pending?.type === 'trade_offer' && (
+  const isAuctionActive  = pending?.type === 'auction' && !diceAnimating;
+  const isBuyOfferActive = pending?.type === 'buy_offer' && isMyTurn && !!myPlayer && !myPlayer.is_bankrupt && pending.tile_id !== undefined && !diceAnimating;
+  const isTradeActive    = pending?.type === 'trade_offer' && !diceAnimating && (
     pending.trade_from_player_id === myPlayerId || pending.trade_to_player_id === myPlayerId
   );
   const currentNeon      = NEON[currentPlayer?.color ?? 'cyan'] ?? 'var(--neon-cyan)';
@@ -245,6 +332,7 @@ export default function GameRoomClient({
   })();
 
   function copyCode() {
+    playClick();
     navigator.clipboard.writeText(activeRoom.room_code).then(() => {
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 2000);
@@ -410,21 +498,41 @@ export default function GameRoomClient({
 
           <div style={{ flex: 1 }} />
 
-          {/* Settings button */}
-          <button style={{
-            width: 32, height: 32,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'var(--bg-raised)',
-            border: '1px solid var(--stroke-soft)',
-            borderRadius: 'var(--r-md)',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
+          {/* Volume toggle button */}
+          <button
+            onClick={cycleVolume}
+            title={sfxLevel === 'full' ? 'Sound: Full (click to lower)' : sfxLevel === 'half' ? 'Sound: Half (click to mute)' : 'Sound: Muted (click to unmute)'}
+            style={{
+              width: 32, height: 32,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: sfxLevel === 'mute' ? 'oklch(0.68 0.22 25 / 0.12)' : 'var(--bg-raised)',
+              border: `1px solid ${sfxLevel === 'mute' ? 'oklch(0.68 0.22 25 / 0.35)' : 'var(--stroke-soft)'}`,
+              borderRadius: 'var(--r-md)',
+              color: sfxLevel === 'mute' ? 'var(--danger)' : sfxLevel === 'half' ? 'var(--neon-amber)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              transition: 'all var(--dur-fast) var(--ease-out)',
+            }}
+          >
+            {sfxLevel === 'mute' ? (
+              // Muted speaker
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+              </svg>
+            ) : sfxLevel === 'half' ? (
+              // Low volume speaker
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            ) : (
+              // Full volume speaker
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            )}
           </button>
         </div>
 
@@ -440,6 +548,8 @@ export default function GameRoomClient({
             turnPhase={activeRoom.turn_phase}
             currentPlayerName={currentPlayer?.name}
             currentPlayerColor={currentPlayer?.color}
+            diceRollerName={diceRollerName ?? undefined}
+            diceRollerColor={diceRollerColor}
             doublesRolled={activeRoom.doubles_turn ?? false}
             onRoll={handleRoll}
             onEndTurn={handleEndTurn}
@@ -505,7 +615,7 @@ export default function GameRoomClient({
               <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {/* Propose trade */}
                 <button
-                  onClick={() => setShowTrade(true)}
+                  onClick={() => { playClick(); setShowTrade(true); }}
                   disabled={!isMyTurn || activeRoom.turn_phase !== 'end'}
                   style={{
                   width: '100%', padding: '10px 14px',
@@ -528,7 +638,7 @@ export default function GameRoomClient({
 
                 {/* Manage properties */}
                 <button
-                  onClick={() => setShowProps(true)}
+                  onClick={() => { playClick(); setShowProps(true); }}
                   style={{
                     width: '100%', padding: '8px 14px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
