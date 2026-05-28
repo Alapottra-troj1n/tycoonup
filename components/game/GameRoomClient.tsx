@@ -21,6 +21,7 @@ import BuyOfferModal from './BuyOfferModal';
 import PropertyManager from './PropertyManager';
 import TaxChoiceModal from './TaxChoiceModal';
 import TradeModal from './TradeModal';
+import TurnAnnouncer from './TurnAnnouncer';
 
 const NEON: Record<string, string> = {
   cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
@@ -70,8 +71,12 @@ export default function GameRoomClient({
   const [rollLoading, setRollLoading] = useState(false);
   const [endLoading, setEndLoading] = useState(false);
   const [showTrade, setShowTrade] = useState(false);
+  const [turnAnnounce, setTurnAnnounce] = useState<{
+    name: string; color: string; isMe: boolean; isBot: boolean; key: number;
+  } | null>(null);
 
   const playersRef = useRef<Player[]>(initialPlayers);
+  const prevCurrentPlayerIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     playersRef.current = players.length > 0 ? players : initialPlayers;
   });
@@ -164,6 +169,32 @@ export default function GameRoomClient({
   useEffect(() => {
     if ((room ?? initialRoom).pending_action?.type !== 'trade_offer') setShowTrade(false);
   }, [(room ?? initialRoom).pending_action?.type]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Announce whose turn it is whenever the active player index changes
+  useEffect(() => {
+    const activeRoom = room ?? initialRoom;
+    if (activeRoom.status !== 'playing') return;
+    const sorted = playersRef.current.slice().sort((a, b) => a.turn_order - b.turn_order);
+    const cp = sorted[activeRoom.current_player_idx];
+    if (!cp) return;
+    const prevId = prevCurrentPlayerIdRef.current;
+    prevCurrentPlayerIdRef.current = cp.id;
+    if (prevId === undefined || prevId === cp.id) return;
+    setTurnAnnounce({
+      name: cp.name,
+      color: cp.color,
+      isMe: cp.id === myPlayerId,
+      isBot: cp.is_bot ?? false,
+      key: Date.now(),
+    });
+    const timer = setTimeout(() => setTurnAnnounce(null), 2300);
+    return () => clearTimeout(timer);
+  }, [(room ?? initialRoom).current_player_idx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dismiss the turn announcer as soon as dice start rolling
+  useEffect(() => {
+    if (diceAnimating) setTurnAnnounce(null);
+  }, [diceAnimating]);
 
   const activeRoom       = room ?? initialRoom;
   const activePlayers    = (players.length > 0 ? players : initialPlayers).slice().sort((a, b) => a.turn_order - b.turn_order);

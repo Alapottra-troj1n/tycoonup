@@ -39,10 +39,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
       prev.turn_phase === 'roll' &&
       room.turn_phase !== 'roll'
     );
+    // A turn change happens when the active player index advances (different player)
+    const isTurnChange = !!(
+      room.status === 'playing' &&
+      prev?.status === 'playing' &&
+      room.current_player_idx !== prev?.current_player_idx
+    );
     set({ room });
     if (isNewRoll) {
       set({ lastDiceRoll: room.dice_roll as [number, number], diceAnimating: true });
       setTimeout(() => set({ diceAnimating: false }), 2000);
+    } else if (isTurnChange) {
+      // Clear stale dice from the previous player's turn so the board shows "waiting" state
+      set({ lastDiceRoll: null });
     }
   },
 
