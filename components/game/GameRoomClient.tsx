@@ -67,7 +67,7 @@ export default function GameRoomClient({
     room, players, properties,
     setRoom, setPlayers, setProperties,
     upsertPlayer, upsertProperty, setMyPlayerId,
-    lastDiceRoll, diceAnimating,
+    lastDiceRoll, diceAnimating, frozenPlayers,
   } = useGameStore();
 
   const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
@@ -282,7 +282,10 @@ export default function GameRoomClient({
   }, [players]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeRoom       = room ?? initialRoom;
-  const activePlayers    = (players.length > 0 ? players : initialPlayers).slice().sort((a, b) => a.turn_order - b.turn_order);
+  // While dice are animating, freeze player positions at their pre-roll state
+  const rawPlayers       = players.length > 0 ? players : initialPlayers;
+  const activePlayers    = (diceAnimating && frozenPlayers ? frozenPlayers : rawPlayers)
+    .slice().sort((a, b) => a.turn_order - b.turn_order);
   const activeProperties = properties.length > 0 ? properties : initialProperties;
   const myPlayer         = activePlayers.find((p) => p.id === myPlayerId) ?? null;
   const currentPlayer    = activePlayers[activeRoom.current_player_idx] ?? null;

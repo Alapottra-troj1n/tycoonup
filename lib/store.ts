@@ -10,6 +10,8 @@ interface GameStore {
   myPlayerId: string | null;
   lastDiceRoll: [number, number] | null;
   diceAnimating: boolean;
+  /** Snapshot of players frozen at their pre-roll positions during dice animation */
+  frozenPlayers: Player[] | null;
 
   setRoom: (room: GameRoom) => void;
   setPlayers: (players: Player[]) => void;
@@ -28,6 +30,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   myPlayerId: null,
   lastDiceRoll: null,
   diceAnimating: false,
+  frozenPlayers: null,
 
   setRoom: (room) => {
     const prev = get().room;
@@ -47,8 +50,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     );
     set({ room });
     if (isNewRoll) {
-      set({ lastDiceRoll: room.dice_roll as [number, number], diceAnimating: true });
-      setTimeout(() => set({ diceAnimating: false }), 2500);
+      // Freeze player positions at their current (pre-move) state before animation starts
+      set({ lastDiceRoll: room.dice_roll as [number, number], diceAnimating: true, frozenPlayers: get().players });
+      setTimeout(() => set({ diceAnimating: false, frozenPlayers: null }), 2500);
     } else if (isTurnChange) {
       // Clear stale dice from the previous player's turn so the board shows "waiting" state
       set({ lastDiceRoll: null });
@@ -80,11 +84,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setMyPlayerId: (id) => set({ myPlayerId: id }),
 
   triggerDiceRoll: (roll) => {
-    set({ lastDiceRoll: roll, diceAnimating: true });
-    setTimeout(() => set({ diceAnimating: false }), 2500);
+    set({ lastDiceRoll: roll, diceAnimating: true, frozenPlayers: get().players });
+    setTimeout(() => set({ diceAnimating: false, frozenPlayers: null }), 2500);
   },
 
-  stopDiceAnimation: () => set({ diceAnimating: false }),
+  stopDiceAnimation: () => set({ diceAnimating: false, frozenPlayers: null }),
 }));
 
 export function selectCurrentPlayer(store: GameStore): Player | null {
