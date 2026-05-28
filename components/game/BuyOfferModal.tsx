@@ -14,9 +14,10 @@ interface BuyOfferModalProps {
   tileId: number;
   price: number;
   allProperties?: import('@/lib/types').Property[];
+  onManageProperties?: () => void;
 }
 
-export default function BuyOfferModal({ room, myPlayer, tileId, price, allProperties = [] }: BuyOfferModalProps) {
+export default function BuyOfferModal({ room, myPlayer, tileId, price, allProperties = [], onManageProperties }: BuyOfferModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,9 +60,10 @@ export default function BuyOfferModal({ room, myPlayer, tileId, price, allProper
         position: 'fixed', inset: 0, zIndex: 50,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 16,
-        background: 'oklch(0.1 0.02 260 / 0.88)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
+        background: 'transparent',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        pointerEvents: 'none',
       }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -76,6 +78,7 @@ export default function BuyOfferModal({ room, myPlayer, tileId, price, allProper
           borderRadius: 'var(--r-2xl)',
           boxShadow: `0 0 60px ${setColor}18, var(--shadow-xl)`,
           overflow: 'hidden',
+          pointerEvents: 'auto',
         }}
         initial={{ scale: 0.85, y: 24 }}
         animate={{ scale: 1, y: 0 }}
@@ -222,6 +225,34 @@ export default function BuyOfferModal({ room, myPlayer, tileId, price, allProper
             </div>
           )}
         </div>
+
+        {onManageProperties && (
+          <div style={{ padding: '0 20px 8px' }}>
+            <motion.button
+              disabled={loading}
+              onClick={onManageProperties}
+              style={{
+                width: '100%', padding: '10px 14px',
+                borderRadius: 'var(--r-lg)',
+                fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12.5,
+                background: !canAfford 
+                  ? 'linear-gradient(180deg, var(--neon-amber) 0%, oklch(0.68 0.22 75) 100%)'
+                  : 'var(--bg-raised)',
+                color: !canAfford ? 'oklch(0.12 0.02 260)' : 'var(--text-secondary)',
+                border: !canAfford ? 'none' : '1px solid var(--stroke-soft)',
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.6 : 1,
+                boxShadow: !canAfford ? '0 3px 12px oklch(0.68 0.22 75 / 0.3)' : 'var(--shadow-sm)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
+              whileHover={!loading ? { scale: 1.01 } : {}}
+              whileTap={!loading ? { scale: 0.99 } : {}}
+            >
+              <span>💼</span>
+              <span>{!canAfford ? 'Raise Cash to Buy' : 'Manage Properties'}</span>
+            </motion.button>
+          </div>
+        )}
 
         {/* Action buttons */}
         <div style={{ display: 'flex', gap: 8, padding: '0 20px 20px' }}>

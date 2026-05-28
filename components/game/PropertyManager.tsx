@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { GameRoom, Player, Property } from '@/lib/types';
 import { TILES, SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
-import { formatMoney } from '@/lib/utils';
+import { formatMoney, ownsFullSet, getSetOwnerCount } from '@/lib/utils';
 import { upgradeProperty, downgradeProperty, mortgageProperty, unmortgageProperty } from '@/app/actions/game';
 import FlagChip from './FlagChip';
 
@@ -54,6 +54,10 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const sortedPlayers = allPlayers.slice().sort((a, b) => a.turn_order - b.turn_order);
+  const currentPlayer = sortedPlayers[room.current_player_idx];
+  const isMyTurn = currentPlayer?.id === player.id;
+
   const myProperties = properties
     .filter((p) => p.owner_id === player.id)
     .sort((a, b) => a.tile_id - b.tile_id);
@@ -77,7 +81,7 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
   return (
     <motion.div
       style={{
-        position: 'fixed', inset: 0, zIndex: 40,
+        position: 'fixed', inset: 0, zIndex: 60,
         display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
         padding: '0 0 0',
         background: 'oklch(0.08 0.02 260 / 0.75)',
@@ -119,7 +123,14 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
           flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>My Properties</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>My Properties</span>
+              {!isMyTurn && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, padding: '2px 6px', borderRadius: 'var(--r-pill)', background: 'oklch(0.68 0.22 25 / 0.12)', color: 'var(--danger)', letterSpacing: '0.06em', fontWeight: 600 }}>
+                  ⚠️ NOT YOUR TURN
+                </span>
+              )}
+            </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>
               {myProperties.length} owned · {formatMoney(player.balance)} balance
             </div>
@@ -238,10 +249,26 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                     const currentRent = tile.rentLevels?.[prop.upgrade_level];
                     const nextRent = tile.rentLevels?.[prop.upgrade_level + 1];
                     const unmortgageCost = tile.mortgageValue ? Math.ceil(tile.mortgageValue * 1.1) : 0;
-                    const canUpgrade = tile.type === 'country' && prop.upgrade_level < 4 && !prop.is_mortgaged && player.balance >= (tile.upgradePrice ?? 999);
-                    const canDowngrade = tile.type === 'country' && prop.upgrade_level > 0 && !prop.is_mortgaged;
-                    const canMortgage = !prop.is_mortgaged && prop.upgrade_level === 0;
-                    const canUnmortgage = prop.is_mortgaged && player.balance >= unmortgageCost;
+
+                    // Monopoly set & Even Building / Even Demolition validations (matching TileDetailModal)
+                    const mySetOwned = tile.set ? getSetOwnerCount(properties, tile.set, player.id) : 0;
+                    const setTotal = tile.set ? (SET_SIZES[tile.set] ?? 2) : 0;
+                    const hasMonopoly = tile.set && mySetOwned >= setTotal;
+
+                    const setTileIds = tile.set ? TILES.filter(t => t.set === tile.set).map(t => t.id) : [];
+                    const myGroupProps = tile.set ? properties.filter(p => setTileIds.includes(p.tile_id) && p.owner_id === player.id) ?? [] : [];
+                    const minLevel = myGroupProps.length > 0 ? Math.min(...myGroupProps.map(p => p.upgrade_level)) : 0;
+                    const maxLevel = myGroupProps.length > 0 ? Math.max(...myGroupProps.map(p => p.upgrade_level)) : 0;
+                    const isEvenBuilding = prop.upgrade_level === minLevel;
+                    const isEvenDemolition = prop.upgrade_level === maxLevel;
+
+                    const groupHasUpgrades = myGroupProps.some(p => p.upgrade_level > 0);
+                    const propHasUpgrades = tile.set ? groupHasUpgrades : (prop.upgrade_level > 0);
+
+                    const canUpgrade = isMyTurn && hasMonopoly && tile.type === 'country' && prop.upgrade_level < 4 && !prop.is_mortgaged && player.balance >= (tile.upgradePrice ?? 999) && isEvenBuilding;
+                    const canDowngrade = isMyTurn && tile.type === 'country' && prop.upgrade_level > 0 && !prop.is_mortgaged && isEvenDemolition;
+                    const canMortgage = isMyTurn && !prop.is_mortgaged && !propHasUpgrades;
+                    const canUnmortgage = isMyTurn && prop.is_mortgaged && player.balance >= unmortgageCost;
 
                     return (
                       <div
@@ -311,19 +338,19 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                                 {loadingKey === `up-${prop.id}` ? '…' : `↑ $${tile.upgradePrice}`}
                               </PropActionBtn>
                             )}
-                            {canDowngrade && (
+                            {tile.type === 'country' && !prop.is_mortgaged && prop.upgrade_level > 0 && (
                               <PropActionBtn
                                 variant="danger"
-                                disabled={loadingKey === `down-${prop.id}`}
+                                disabled={!canDowngrade || loadingKey === `down-${prop.id}`}
                                 onClick={() => withLoad(`down-${prop.id}`, () => downgradeProperty(room.id, player.id, prop.tile_id))}
                               >
                                 {loadingKey === `down-${prop.id}` ? '…' : `↓ +$${Math.floor((tile.upgradePrice ?? 0) / 2)}`}
                               </PropActionBtn>
                             )}
-                            {canMortgage && (
+                            {!prop.is_mortgaged && (
                               <PropActionBtn
                                 variant="danger"
-                                disabled={loadingKey === `mort-${prop.id}`}
+                                disabled={!canMortgage || loadingKey === `mort-${prop.id}`}
                                 onClick={() => withLoad(`mort-${prop.id}`, () => mortgageProperty(room.id, player.id, prop.tile_id))}
                               >
                                 {loadingKey === `mort-${prop.id}` ? '…' : `Mortgage $${tile.mortgageValue}`}

@@ -9,8 +9,8 @@ import { formatMoney } from '@/lib/utils';
 import { rollDice, buyProperty, skipBuy, answerChestQuestion, endTurn, chooseTax, rejectTrade } from '@/app/actions/game';
 import {
   playDiceRoll, playTokenMove, playGameStart, playAuctionStart,
-  playChestOpen, playTurnStart, playClick, playBuySuccess, playSkip, playTax, playWin,
-  getMasterVolume, setMasterVolume,
+  playChestOpen, playTurnStart, playClick, playHover, playBuySuccess, playSkip, playTax, playWin,
+  getMasterVolume, setMasterVolume, startAmbient, stopAmbient, setTension, playModalOpen, playModalClose
 } from '@/lib/sounds';
 import Lobby from './Lobby';
 import BoardView from './BoardView';
@@ -68,6 +68,7 @@ export default function GameRoomClient({
     setRoom, setPlayers, setProperties,
     upsertPlayer, upsertProperty, setMyPlayerId,
     lastDiceRoll, diceAnimating,
+    walkingPlayerId, pendingPlayerUpdate,
   } = useGameStore();
 
   const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
@@ -94,7 +95,10 @@ export default function GameRoomClient({
     const next = sfxLevel === 'full' ? 'half' : sfxLevel === 'half' ? 'mute' : 'full';
     setSfxLevel(next);
     setMasterVolume(next === 'full' ? 0.55 : next === 'half' ? 0.22 : 0);
-    if (next !== 'mute') playClick();
+    if (next !== 'mute') {
+      startAmbient();
+      playClick();
+    }
   }
 
   const playersRef = useRef<Player[]>(initialPlayers);
@@ -126,6 +130,47 @@ export default function GameRoomClient({
   }, [initialRoom.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => setupRealtime(), [setupRealtime]);
+
+  // Procedural Lobby/Game Ambience Mount Cycle
+  useEffect(() => {
+    startAmbient();
+    return () => {
+      stopAmbient();
+    };
+  }, []);
+
+  // Modal Whoosh Transitions
+  const isFirstPropsRender = useRef(true);
+  useEffect(() => {
+    if (isFirstPropsRender.current) {
+      isFirstPropsRender.current = false;
+      return;
+    }
+    if (showProps) playModalOpen();
+    else playModalClose();
+  }, [showProps]);
+
+  const isFirstTradeRender = useRef(true);
+  useEffect(() => {
+    if (isFirstTradeRender.current) {
+      isFirstTradeRender.current = false;
+      return;
+    }
+    if (showTrade) playModalOpen();
+    else playModalClose();
+  }, [showTrade]);
+
+  const isFirstTileRender = useRef(true);
+  useEffect(() => {
+    if (isFirstTileRender.current) {
+      isFirstTileRender.current = false;
+      return;
+    }
+    if (selectedTile) playModalOpen();
+    else playModalClose();
+  }, [selectedTile]);
+
+
 
   const activeStatus = (room ?? initialRoom).status;
   const activeIdx    = (room ?? initialRoom).current_player_idx;
@@ -281,7 +326,8 @@ export default function GameRoomClient({
         const steps = (p.position - prev + 40) % 40;
         // Stagger a tick sound per step
         for (let s = 0; s < Math.min(steps, 12); s++) {
-          setTimeout(() => playTokenMove(), s * 140);
+          const isLast = s === Math.min(steps, 12) - 1;
+          setTimeout(() => playTokenMove(isLast), s * 140);
         }
       }
       prevPlayerPositionsRef.current[p.id] = p.position;
@@ -291,6 +337,23 @@ export default function GameRoomClient({
   const myPlayer         = activePlayers.find((p) => p.id === myPlayerId) ?? null;
   const currentPlayer    = activePlayers[activeRoom.current_player_idx] ?? null;
   const isMyTurn         = currentPlayer?.id === myPlayerId;
+
+  // Dynamic Tension Engine (Heartbeats + Pad shift)
+  useEffect(() => {
+    const activeRoom = room ?? initialRoom;
+    if (activeRoom.status !== 'playing') {
+      setTension(false);
+      return;
+    }
+    
+    const isAuction = activeRoom.pending_action?.type === 'auction';
+    const cp = currentPlayer;
+    const activeIsMyTurn = cp?.id === myPlayerId;
+    const isLowBalance = myPlayer ? myPlayer.balance < 200 : false;
+    
+    // High tension triggers during any auction OR during our turn with critically low funds (<$200)
+    setTension(isAuction || (activeIsMyTurn && isLowBalance));
+  }, [room, initialRoom, currentPlayer, myPlayerId, myPlayer]);
 
   async function handleRoll() {
     if (!myPlayer || rollLoading) return;
@@ -316,12 +379,13 @@ export default function GameRoomClient({
     return <WinScreen players={activePlayers} properties={activeProperties} myPlayerId={myPlayerId} />;
   }
 
+  const isAnimating      = diceAnimating || walkingPlayerId !== null || pendingPlayerUpdate !== null;
   const pending          = activeRoom.pending_action;
-  const isChestActive    = pending?.type === 'chest_quiz' && !!pending.question && !diceAnimating;
+  const isChestActive    = pending?.type === 'chest_quiz' && !!pending.question && !isAnimating;
   const isChestForMe     = pending?.player_id === myPlayerId;
-  const isAuctionActive  = pending?.type === 'auction' && !diceAnimating;
-  const isBuyOfferActive = pending?.type === 'buy_offer' && isMyTurn && !!myPlayer && !myPlayer.is_bankrupt && pending.tile_id !== undefined && !diceAnimating;
-  const isTradeActive    = pending?.type === 'trade_offer' && !diceAnimating && (
+  const isAuctionActive  = pending?.type === 'auction' && !isAnimating;
+  const isBuyOfferActive = pending?.type === 'buy_offer' && isMyTurn && !!myPlayer && !myPlayer.is_bankrupt && pending.tile_id !== undefined && !isAnimating;
+  const isTradeActive    = pending?.type === 'trade_offer' && !isAnimating && (
     pending.trade_from_player_id === myPlayerId || pending.trade_to_player_id === myPlayerId
   );
   const currentNeon      = NEON[currentPlayer?.color ?? 'cyan'] ?? 'var(--neon-cyan)';
@@ -361,12 +425,23 @@ export default function GameRoomClient({
         <ChestModal room={activeRoom} playerId={myPlayerId} question={pending!.question!} isActivePlayer={isChestForMe} />
       )}
       {isAuctionActive && myPlayer && (
-        <AuctionModal room={activeRoom} players={activePlayers} myPlayer={myPlayer} />
+        <AuctionModal
+          room={activeRoom}
+          players={activePlayers}
+          myPlayer={myPlayer}
+          onManageProperties={() => setShowProps(true)}
+        />
       )}
       {isBuyOfferActive && myPlayer && (
-        <BuyOfferModal room={activeRoom} myPlayer={myPlayer} tileId={pending!.tile_id!} price={pending!.price ?? 0} />
+        <BuyOfferModal
+          room={activeRoom}
+          myPlayer={myPlayer}
+          tileId={pending!.tile_id!}
+          price={pending!.price ?? 0}
+          onManageProperties={() => setShowProps(true)}
+        />
       )}
-      {pending?.type === 'income_tax_choice' && myPlayer && (
+      {pending?.type === 'income_tax_choice' && myPlayer && !isAnimating && (
         <TaxChoiceModal room={activeRoom} myPlayer={myPlayer} />
       )}
       {myPlayer && (isTradeActive || showTrade) && (
@@ -379,9 +454,12 @@ export default function GameRoomClient({
         />
       )}
       <TileDetailModal
+        room={activeRoom}
+        myPlayerId={myPlayerId}
         tile={selectedTile}
         property={selectedTile ? activeProperties.find((p) => p.tile_id === selectedTile.id) : undefined}
         players={activePlayers}
+        allProperties={activeProperties}
         onClose={() => setSelectedTile(null)}
       />
 
@@ -418,6 +496,7 @@ export default function GameRoomClient({
             </div>
             <button
               onClick={copyCode}
+              onMouseEnter={() => playHover()}
               style={{
                 padding: '7px 10px',
                 background: codeCopied ? 'oklch(0.78 0.18 150 / 0.15)' : 'var(--bg-raised)',
@@ -513,6 +592,7 @@ export default function GameRoomClient({
           {/* Volume toggle button */}
           <button
             onClick={cycleVolume}
+            onMouseEnter={() => playHover()}
             title={sfxLevel === 'full' ? 'Sound: Full (click to lower)' : sfxLevel === 'half' ? 'Sound: Half (click to mute)' : 'Sound: Muted (click to unmute)'}
             style={{
               width: 32, height: 32,
@@ -629,7 +709,8 @@ export default function GameRoomClient({
                 {/* Propose trade */}
                 <button
                   onClick={() => { playClick(); setShowTrade(true); }}
-                  disabled={!isMyTurn || activeRoom.turn_phase !== 'end'}
+                  onMouseEnter={() => playHover()}
+                  disabled={!isMyTurn || (activeRoom.turn_phase !== 'end' && activeRoom.turn_phase !== 'action')}
                   style={{
                   width: '100%', padding: '10px 14px',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -652,6 +733,7 @@ export default function GameRoomClient({
                 {/* Manage properties */}
                 <button
                   onClick={() => { playClick(); setShowProps(true); }}
+                  onMouseEnter={() => playHover()}
                   style={{
                     width: '100%', padding: '8px 14px',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,

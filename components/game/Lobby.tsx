@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { GameRoom, Player } from '@/lib/types';
 import { startGame, addBot } from '@/app/actions/game';
 import { formatMoney } from '@/lib/utils';
+import { playClick, playHover, startAmbient } from '@/lib/sounds';
 
 const NEON: Record<string, string> = {
   cyan:    'var(--neon-cyan)',
@@ -135,7 +136,8 @@ export default function Lobby({ room, players, myPlayerId }: LobbyProps) {
           </div>
           <div style={{ padding: '14px 16px' }}>
             <button
-              onClick={copyCode}
+              onClick={() => { playClick(); copyCode(); }}
+              onMouseEnter={() => playHover()}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -184,7 +186,8 @@ export default function Lobby({ room, players, myPlayerId }: LobbyProps) {
               {canAddBot && (
                 <button
                   disabled={botLoading}
-                  onClick={handleAddBot}
+                  onClick={() => { playClick(); handleAddBot(); }}
+                  onMouseEnter={() => !botLoading && playHover()}
                   style={{
                     padding: '4px 10px', borderRadius: 'var(--r-pill)',
                     fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
@@ -208,6 +211,7 @@ export default function Lobby({ room, players, myPlayerId }: LobbyProps) {
                 return (
                   <motion.div
                     key={player.id}
+                    onMouseEnter={() => playHover()}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10,
                       padding: '8px 10px', borderRadius: 'var(--r-md)', marginBottom: 4,
@@ -259,7 +263,8 @@ export default function Lobby({ room, players, myPlayerId }: LobbyProps) {
           {isHost ? (
             <motion.button
               disabled={!canStart || loading}
-              onClick={handleStart}
+              onClick={() => { playClick(true); handleStart(); }}
+              onMouseEnter={() => canStart && !loading && playHover()}
               style={{
                 width: '100%', padding: '14px 22px',
                 borderRadius: 'var(--r-xl)',

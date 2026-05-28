@@ -235,11 +235,14 @@ export default function BoardView({
             const { row, col } = getTileGridPos(tile.id);
             const side = getTileSide(tile.id);
             const isCorner = side === 'corner';
+            const property = propertyMap.get(tile.id);
+            const owner = property?.owner_id ? players.find((p) => p.id === property.owner_id) : undefined;
             return (
               <div key={tile.id} style={{ gridRow: row, gridColumn: col }}>
                 <TileCell
                   tile={tile}
-                  property={propertyMap.get(tile.id)}
+                  property={property}
+                  owner={owner}
                   playersOnTile={playersOnTile.get(tile.id) ?? []}
                   isCorner={isCorner}
                   side={side}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useLayoutEffect, useState, useId, useMemo } from 'react';
+import { useLayoutEffect, useState, useId, useMemo, useRef } from 'react';
 
 interface ThreeDDiceProps {
   n: number;
@@ -35,9 +35,14 @@ export default function ThreeDDice({ n, size = 80, spinning = false }: ThreeDDic
 
   // We track the rotations (in degrees) to apply to the cube wrapper
   const [rotation, setRotation] = useState({ x: 0, y: 0, z: 0 });
+  const [wasSpinning, setWasSpinning] = useState(false);
+
+  // We track the previous spinning state using a ref
+  const prevSpinningRef = useRef(spinning);
 
   useLayoutEffect(() => {
     if (spinning) {
+      setWasSpinning(true);
       // While spinning, generate large, randomized tumbling angles
       // to create a rich physical rolling animation.
       // We also set up an interval to repeatedly shake the angles during the spin.
@@ -49,17 +54,23 @@ export default function ThreeDDice({ n, size = 80, spinning = false }: ThreeDDic
         });
       }, 150);
 
+      prevSpinningRef.current = true;
       return () => clearInterval(interval);
     } else {
       // When the roll finishes, set the target rotations to snap the rolled face forward.
-      // We add a full rotation multiplier (e.g. 720deg) to the destination
-      // to make it look like the die did a final roll into its resting state.
+      // We only add a full rotation multiplier (e.g. 720deg) to the destination
+      // if we actually transitioned from spinning to resting state.
       const target = FACE_ROTATIONS[n] ?? FACE_ROTATIONS[1];
+      const transitionedFromSpin = prevSpinningRef.current;
+
       setRotation({
-        x: target.x + 720,
-        y: target.y + 720,
+        x: target.x + (transitionedFromSpin ? 720 : 0),
+        y: target.y + (transitionedFromSpin ? 720 : 0),
         z: 0,
       });
+
+      setWasSpinning(transitionedFromSpin);
+      prevSpinningRef.current = false;
     }
   }, [spinning, n]);
 
@@ -96,7 +107,9 @@ export default function ThreeDDice({ n, size = 80, spinning = false }: ThreeDDic
           transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) rotateZ(${rotation.z}deg)`,
           transition: spinning 
             ? 'transform 150ms linear' 
-            : 'transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275)', // physics-like spring snap back
+            : wasSpinning
+              ? 'transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275)' // physics-like spring snap back
+              : 'none',
         }}
       >
         {faces.map(({ id, style }) => (

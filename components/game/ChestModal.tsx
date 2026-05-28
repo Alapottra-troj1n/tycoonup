@@ -58,9 +58,10 @@ export default function ChestModal({ room, playerId, question, isActivePlayer }:
           position: 'fixed', inset: 0, zIndex: 50,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           padding: 16,
-          background: 'oklch(0.08 0.02 260 / 0.9)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
+          background: 'transparent',
+          backdropFilter: 'none',
+          WebkitBackdropFilter: 'none',
+          pointerEvents: 'none',
         }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -76,6 +77,7 @@ export default function ChestModal({ room, playerId, question, isActivePlayer }:
             borderRadius: 'var(--r-2xl)',
             boxShadow: 'var(--glow-cyan), var(--shadow-xl)',
             overflow: 'hidden',
+            pointerEvents: 'auto',
           }}
           initial={{ scale: 0.75, y: 24 }}
           animate={{ scale: 1, y: 0 }}

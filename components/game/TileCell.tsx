@@ -3,7 +3,7 @@
 import FlagChip from './FlagChip';
 import PlayerMascot from './PlayerMascot';
 import type { Tile, Player, Property } from '@/lib/types';
-import { SET_COLORS } from '@/lib/game-data';
+import { PLAYER_COLOR_MAP } from '@/lib/game-data';
 
 const SHORT_NAMES: Record<string, string> = {
   'Ransom to Underworld': 'R. Underworld',
@@ -25,6 +25,7 @@ type TileSide = 'bottom' | 'left' | 'top' | 'right' | 'corner';
 interface TileCellProps {
   tile: Tile;
   property?: Property;
+  owner?: Player;
   playersOnTile: Player[];
   isCorner: boolean;
   side: TileSide;
@@ -91,7 +92,7 @@ const TILE_ICONS: Record<string, string> = {
 //   bottom → bottom edge   left → left edge   top → top edge   right → right edge
 
 export default function TileCell({
-  tile, property, playersOnTile, isCorner, side, onClick,
+  tile, property, owner, playersOnTile, isCorner, side, onClick,
 }: TileCellProps) {
   if (isCorner) {
     return (
@@ -129,8 +130,13 @@ export default function TileCell({
   const isOwned     = !!property?.owner_id;
   const isMortgaged = !!property?.is_mortgaged;
   const upgradeLevel = property?.upgrade_level ?? 0;
-  const showBand    = tile.type === 'country' && !!tile.set && isOwned;
-  const bandColor   = tile.set ? (SET_COLORS[tile.set] ?? 'transparent') : 'transparent';
+  
+  // Show color band for any owned country, transport, or utility tile
+  const showBand    = (tile.type === 'country' || tile.type === 'transport' || tile.type === 'utility') && isOwned;
+  
+  // The color band displays the owner's player color instead of the country set color
+  const ownerColorHex = owner ? (PLAYER_COLOR_MAP[owner.color]?.hex ?? '#ffffff') : '#ffffff';
+  const bandColor   = ownerColorHex;
 
   // Content rotation — make text readable toward the board center
   const contentRotation =
@@ -159,13 +165,15 @@ export default function TileCell({
       style={{
         width: '100%', height: '100%',
         position: 'relative',
-        border: '1px solid var(--stroke-hairline)', borderRadius: 3,
+        border: isOwned && owner ? `1px solid ${ownerColorHex}` : '1px solid var(--stroke-hairline)',
+        borderRadius: 3,
         background: isMortgaged ? 'oklch(0.18 0.010 255)' :
-                    isOwned     ? 'oklch(0.22 0.025 255)' :
+                    (isOwned && owner) ? `linear-gradient(135deg, oklch(0.22 0.025 255) 0%, ${ownerColorHex}12 100%)` :
                                   'oklch(0.19 0.018 255)',
+        boxShadow: (isOwned && owner) ? `inset 0 0 6px ${ownerColorHex}25, 0 0 4px ${ownerColorHex}15` : 'none',
         cursor: onClick ? 'pointer' : 'default',
         opacity: isMortgaged ? 0.55 : 1,
-        transition: 'background var(--dur-fast)',
+        transition: 'all var(--dur-fast)',
       }}
     >
       {/* ── Color band (always on the outer edge) ── */}
@@ -235,13 +243,33 @@ export default function TileCell({
         {/* Mortgaged label */}
         {isMortgaged && (
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 6,
-            color: 'var(--danger)', letterSpacing: '0.06em', textTransform: 'uppercase',
+            fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+            color: 'var(--danger)', letterSpacing: '0.08em', textTransform: 'uppercase',
+            background: 'oklch(0.68 0.22 25 / 0.12)',
+            padding: '1px 4px', borderRadius: 2,
+            border: '1px solid oklch(0.68 0.22 25 / 0.35)',
+            marginTop: 2,
           }}>
-            MORT
+            Mortgaged
           </div>
         )}
       </div>
+
+      {/* Mortgaged lock overlay */}
+      {isMortgaged && (
+        <div style={{
+          position: 'absolute',
+          top: 3, right: 3,
+          width: 14, height: 14, borderRadius: '50%',
+          background: 'oklch(0.12 0.02 260 / 0.9)',
+          border: '1px solid var(--danger)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 8, zIndex: 10,
+          boxShadow: '0 0 6px var(--danger)',
+        }}>
+          🔒
+        </div>
+      )}
 
       {/* ── Player mascots — always upright, floating, overlapping ── */}
       {playersOnTile.length > 0 && (

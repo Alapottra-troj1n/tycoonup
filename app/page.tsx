@@ -7,6 +7,7 @@ import { Suspense } from 'react';
 import type { PlayerColor } from '@/lib/types';
 import { ALL_PLAYER_COLORS } from '@/lib/game-data';
 import { createRoom, joinRoom } from '@/app/actions/game';
+import { playClick, playHover, startAmbient } from '@/lib/sounds';
 
 const PRESET_NAMES = ['Atlas', 'Nexus', 'Vega', 'Orion', 'Nova', 'Apex'];
 
@@ -98,7 +99,8 @@ function ColorPicker({ selected, onSelect }: { selected: PlayerColor; onSelect: 
         return (
           <button
             key={c}
-            onClick={() => onSelect(c as PlayerColor)}
+            onClick={() => { playClick(); startAmbient(); onSelect(c as PlayerColor); }}
+            onMouseEnter={() => playHover()}
             title={c}
             style={{
               /* Fixed 44×44 box — no size change on select, zero layout shift */
@@ -302,7 +304,8 @@ function HomeContent() {
             transition={{ duration: 0.25 }}
           >
             <motion.button
-              onClick={() => setMode('create')}
+              onClick={() => { playClick(); startAmbient(); setMode('create'); }}
+              onMouseEnter={() => playHover()}
               style={{
                 width: '100%', padding: '13px 22px',
                 borderRadius: 'var(--r-xl)',
@@ -320,7 +323,8 @@ function HomeContent() {
             </motion.button>
 
             <motion.button
-              onClick={() => setMode('join')}
+              onClick={() => { playClick(); startAmbient(); setMode('join'); }}
+              onMouseEnter={() => playHover()}
               style={{
                 width: '100%', padding: '13px 22px',
                 borderRadius: 'var(--r-xl)',
@@ -364,7 +368,8 @@ function HomeContent() {
             {/* Panel header */}
             <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--stroke-hairline)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
-                onClick={() => { setMode('home'); setError(null); }}
+                onClick={() => { playClick(); setMode('home'); setError(null); }}
+                onMouseEnter={() => playHover()}
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: 'var(--r-sm)', display: 'flex', alignItems: 'center' }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
@@ -415,7 +420,13 @@ function HomeContent() {
               {/* Submit */}
               <motion.button
                 disabled={loading}
-                onClick={mode === 'create' ? handleCreate : handleJoin}
+                onClick={() => {
+                  playClick(true); // Confirm click pop sound
+                  startAmbient();
+                  if (mode === 'create') handleCreate();
+                  else handleJoin();
+                }}
+                onMouseEnter={() => !loading && playHover()}
                 style={{
                   width: '100%', padding: '12px 20px', marginTop: 4,
                   borderRadius: 'var(--r-md)',

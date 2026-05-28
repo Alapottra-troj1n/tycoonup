@@ -102,9 +102,10 @@ export default function TradeModal({ room, myPlayer, allPlayers, properties, onC
     position: 'fixed', inset: 0, zIndex: 50,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     padding: 16,
-    background: 'oklch(0.1 0.02 260 / 0.88)',
-    backdropFilter: 'blur(16px)',
-    WebkitBackdropFilter: 'blur(16px)',
+    background: 'transparent',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
+    pointerEvents: 'none',
   };
   const cardStyle: React.CSSProperties = {
     width: '100%', maxWidth: 420, maxHeight: '90vh',
@@ -113,6 +114,7 @@ export default function TradeModal({ room, myPlayer, allPlayers, properties, onC
     border: '1px solid var(--stroke-soft)',
     borderRadius: 'var(--r-2xl)',
     overflow: 'hidden',
+    pointerEvents: 'auto',
   };
   const headerStyle: React.CSSProperties = {
     padding: '16px 20px 12px',

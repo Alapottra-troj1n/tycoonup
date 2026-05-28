@@ -1,12 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Tile, Property, Player } from '@/lib/types';
-import { SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
+import type { Tile, Property, Player, GameRoom } from '@/lib/types';
+import { SET_COLORS, SET_ADVANTAGES, SET_SIZES, TILES } from '@/lib/game-data';
 import { formatMoney, ownsFullSet, getSetOwnerCount } from '@/lib/utils';
+import { upgradeProperty, downgradeProperty, mortgageProperty, unmortgageProperty } from '@/app/actions/game';
 import FlagChip from './FlagChip';
 
 interface TileDetailModalProps {
+  room?: GameRoom | null;
+  myPlayerId?: string | null;
   tile: Tile | null;
   property?: Property;
   players: Player[];
@@ -20,6 +24,7 @@ const NEON: Record<string, string> = {
 };
 
 const TRANSPORT_RENTS = [25, 50, 100, 200];
+const LEVEL_LABELS = ['Base', 'Lvl 1', 'Lvl 2', 'Lvl 3', 'Max'];
 
 function InfoRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -35,7 +40,10 @@ function InfoRow({ label, value, accent }: { label: string; value: string; accen
   );
 }
 
-export default function TileDetailModal({ tile, property, players, allProperties = [], onClose }: TileDetailModalProps) {
+export default function TileDetailModal({ room, myPlayerId, tile, property, players, allProperties = [], onClose }: TileDetailModalProps) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   if (!tile) return null;
 
   const owner = property?.owner_id ? players.find((p) => p.id === property.owner_id) : null;
@@ -54,12 +62,82 @@ export default function TileDetailModal({ tile, property, players, allProperties
     ? { owned: getSetOwnerCount(allProperties, tile.set, owner.id), total: SET_SIZES[tile.set] ?? 2 }
     : null;
 
+  const isMine = !!myPlayerId && property?.owner_id === myPlayerId;
+  const myPlayer = myPlayerId ? players.find(p => p.id === myPlayerId) : null;
+  const isMyTurn = !!myPlayerId && !!room && room.current_player_idx !== undefined && (() => {
+    const sorted = players.slice().sort((a, b) => a.turn_order - b.turn_order);
+    const cp = sorted[room.current_player_idx];
+    return cp?.id === myPlayerId;
+  })();
+
+  // Monopoly progress for upgrades
+  const mySetOwned = tile.set && myPlayerId ? getSetOwnerCount(allProperties, tile.set, myPlayerId) : 0;
+  const setTotal = tile.set ? (SET_SIZES[tile.set] ?? 2) : 0;
+  const hasMonopoly = tile.set && mySetOwned >= setTotal;
+
+  // upgrade eligibility
+  const setTileIds = tile.set ? TILES.filter(t => t.set === tile.set).map(t => t.id) : [];
+  const myGroupProps = tile.set && myPlayerId ? allProperties.filter(p => setTileIds.includes(p.tile_id) && p.owner_id === myPlayerId) ?? [] : [];
+  const minLevel = myGroupProps.length > 0 ? Math.min(...myGroupProps.map(p => p.upgrade_level)) : 0;
+  const isEvenBuilding = upgradeLevel === minLevel;
+  const canUpgrade = isMyTurn && hasMonopoly && upgradeLevel < 4 && !isMortgaged && !!myPlayer && myPlayer.balance >= (tile.upgradePrice ?? 999) && isEvenBuilding;
+
+  // downgrade eligibility
+  const maxLevel = myGroupProps.length > 0 ? Math.max(...myGroupProps.map(p => p.upgrade_level)) : 0;
+  const isEvenDemolition = upgradeLevel === maxLevel;
+  const canDowngrade = isMyTurn && upgradeLevel > 0 && !isMortgaged && isEvenDemolition;
+
+  // mortgage eligibility
+  const groupHasUpgrades = myGroupProps.some(p => p.upgrade_level > 0);
+  const propHasUpgrades = tile.set ? groupHasUpgrades : (upgradeLevel > 0);
+  const canMortgage = isMyTurn && !isMortgaged && !propHasUpgrades;
+  
+  // unmortgage eligibility
+  const unmortgageCost = tile.mortgageValue ? Math.ceil(tile.mortgageValue * 1.1) : 0;
+  const canUnmortgage = isMyTurn && isMortgaged && !!myPlayer && myPlayer.balance >= unmortgageCost;
+
+  async function handleUpgrade() {
+    if (!room || !myPlayerId || !tile) return;
+    setLoading(true);
+    setError(null);
+    const res = await upgradeProperty(room.id, myPlayerId, tile.id);
+    if (!res.success) setError(res.error ?? 'Upgrade failed');
+    setLoading(false);
+  }
+
+  async function handleDowngrade() {
+    if (!room || !myPlayerId || !tile) return;
+    setLoading(true);
+    setError(null);
+    const res = await downgradeProperty(room.id, myPlayerId, tile.id);
+    if (!res.success) setError(res.error ?? 'Downgrade failed');
+    setLoading(false);
+  }
+
+  async function handleMortgage() {
+    if (!room || !myPlayerId || !tile) return;
+    setLoading(true);
+    setError(null);
+    const res = await mortgageProperty(room.id, myPlayerId, tile.id);
+    if (!res.success) setError(res.error ?? 'Mortgage failed');
+    setLoading(false);
+  }
+
+  async function handleUnmortgage() {
+    if (!room || !myPlayerId || !tile) return;
+    setLoading(true);
+    setError(null);
+    const res = await unmortgageProperty(room.id, myPlayerId, tile.id);
+    if (!res.success) setError(res.error ?? 'Unmortgage failed');
+    setLoading(false);
+  }
+
   return (
     <AnimatePresence>
       {tile && (
         <>
           <motion.div
-            style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'oklch(0 0 0 / 0.6)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+            style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'oklch(0.12 0.02 260 / 0.55)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)' }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -282,6 +360,174 @@ export default function TileDetailModal({ tile, property, players, allProperties
                   {tile.type === 'chest'
                     ? 'Answer a trivia question to win or lose money.'
                     : 'Draw a random global event card.'}
+                </div>
+              )}
+
+              {/* Direct Property Management Actions */}
+              {isMine && room && myPlayerId && (
+                <div style={{
+                  marginTop: 14,
+                  paddingTop: 14,
+                  borderTop: '1px solid var(--stroke-hairline)',
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    marginBottom: 10,
+                  }}>
+                    <div style={{
+                      fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12,
+                      color: 'var(--text-primary)',
+                      display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                      <span>💼</span> Manage Property
+                    </div>
+                    {!isMyTurn && (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                        ⚠️ Not your turn
+                      </span>
+                    )}
+                  </div>
+
+                  {error && (
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--danger)',
+                      background: 'oklch(0.68 0.22 25 / 0.08)', border: '1px solid oklch(0.68 0.22 25 / 0.2)',
+                      borderRadius: 'var(--r-sm)', padding: '6px 10px', marginBottom: 10, textAlign: 'center',
+                    }}>
+                      {error}
+                    </div>
+                  )}
+
+                  {/* Upgrades (Houses) building controls */}
+                  {tile.type === 'country' && (
+                    <div style={{
+                      padding: '10px 12px', borderRadius: 'var(--r-md)',
+                      background: 'oklch(1 0 0 / 0.015)', border: '1px solid var(--stroke-soft)',
+                      marginBottom: 10,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                          Houses & Upgrades
+                        </span>
+                        {!hasMonopoly && (
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            🔒 Monopoly Required
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        {/* Current Level display & pips */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>
+                            {LEVEL_LABELS[upgradeLevel]}
+                          </span>
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            {Array.from({ length: 4 }).map((_, i) => (
+                              <div key={i} style={{
+                                width: 7, height: 7, borderRadius: '50%',
+                                background: i < upgradeLevel ? (setColor ?? 'var(--neon-cyan)') : 'oklch(1 0 0 / 0.08)',
+                                boxShadow: i < upgradeLevel ? `0 0 4px ${setColor ?? 'var(--neon-cyan)'}` : 'none',
+                              }} />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Upgrade/Downgrade keys (Up & Down buttons) */}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            disabled={loading || !canDowngrade}
+                            onClick={handleDowngrade}
+                            title="Sell house / Downgrade"
+                            style={{
+                              width: 32, height: 32, borderRadius: 'var(--r-sm)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
+                              color: canDowngrade ? 'var(--neon-amber)' : 'var(--text-faint)',
+                              cursor: canDowngrade && !loading ? 'pointer' : 'not-allowed',
+                              opacity: canDowngrade ? 1 : 0.4,
+                              fontSize: 14, fontWeight: 700,
+                              transition: 'all var(--dur-fast)',
+                            }}
+                          >
+                            ▼
+                          </button>
+                          <button
+                            disabled={loading || !canUpgrade}
+                            onClick={handleUpgrade}
+                            title="Build house / Upgrade"
+                            style={{
+                              width: 32, height: 32, borderRadius: 'var(--r-sm)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              background: canUpgrade ? `linear-gradient(180deg, ${setColor ?? 'var(--neon-cyan)'} 0%, oklch(from ${setColor ?? 'var(--neon-cyan)'} calc(l * 0.8) c h) 100%)` : 'var(--bg-raised)',
+                              color: canUpgrade ? 'oklch(0.12 0.02 260)' : 'var(--text-faint)',
+                              border: canUpgrade ? 'none' : '1px solid var(--stroke-soft)',
+                              cursor: canUpgrade && !loading ? 'pointer' : 'not-allowed',
+                              opacity: canUpgrade ? 1 : 0.4,
+                              fontSize: 14, fontWeight: 700,
+                              transition: 'all var(--dur-fast)',
+                            }}
+                          >
+                            ▲
+                          </button>
+                        </div>
+                      </div>
+
+                      {tile.upgradePrice && (
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', marginTop: 8, textAlign: 'center', lineHeight: 1.3 }}>
+                          {canUpgrade && `Build cost: $${tile.upgradePrice} (min level in group is ${minLevel})`}
+                          {canDowngrade && `Sell value: +$${Math.floor(tile.upgradePrice / 2)} (max level in group is ${maxLevel})`}
+                          {hasMonopoly && !canUpgrade && !isMortgaged && upgradeLevel < 4 && !isEvenBuilding && `Build evenly — upgrade other group properties first.`}
+                          {!hasMonopoly && `Complete the set color group to build houses.`}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Mortgage / Unmortgage action buttons */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {isMortgaged ? (
+                      <button
+                        disabled={loading || !canUnmortgage}
+                        onClick={handleUnmortgage}
+                        style={{
+                          width: '100%', padding: '10px 14px', borderRadius: 'var(--r-md)',
+                          background: 'linear-gradient(180deg, var(--neon-lime) 0%, oklch(0.62 0.13 145) 100%)',
+                          color: 'oklch(0.12 0.02 260)', border: 'none',
+                          fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12,
+                          cursor: canUnmortgage && !loading ? 'pointer' : 'not-allowed',
+                          opacity: canUnmortgage ? 1 : 0.5,
+                          boxShadow: canUnmortgage ? '0 3px 12px oklch(0.77 0.13 145 / 0.3)' : 'none',
+                          transition: 'all var(--dur-fast)',
+                        }}
+                      >
+                        {loading ? '…' : `Lift Mortgage (-$${unmortgageCost})`}
+                      </button>
+                    ) : (
+                      <button
+                        disabled={loading || !canMortgage}
+                        onClick={handleMortgage}
+                        style={{
+                          width: '100%', padding: '10px 14px', borderRadius: 'var(--r-md)',
+                          background: 'oklch(0.82 0.17 75 / 0.12)',
+                          border: '1px solid oklch(0.82 0.17 75 / 0.35)',
+                          color: 'var(--neon-amber)',
+                          fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12,
+                          cursor: canMortgage && !loading ? 'pointer' : 'not-allowed',
+                          opacity: canMortgage ? 1 : 0.5,
+                          boxShadow: canMortgage ? '0 3px 12px oklch(0.82 0.17 75 / 0.15)' : 'none',
+                          transition: 'all var(--dur-fast)',
+                        }}
+                      >
+                        {loading ? '…' : `Mortgage Property (+$${tile.mortgageValue})`}
+                      </button>
+                    )}
+                    {propHasUpgrades && (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--danger)', textAlign: 'center', lineHeight: 1.3 }}>
+                        Must sell all upgrades in this color group before mortgaging.
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

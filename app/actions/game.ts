@@ -982,6 +982,14 @@ export async function upgradeProperty(
       return { success: false, error: 'Cannot upgrade this tile' };
     }
 
+    const { data: activeRoomData } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!activeRoomData) return { success: false, error: 'Room not found' };
+    if (activeRoomData.status !== 'playing') return { success: false, error: 'Game not in progress' };
+
+    const { data: players } = await supabase.from('players').select('*').eq('room_id', roomId).order('turn_order');
+    const currentPlayer = players?.find((_, idx) => idx === activeRoomData.current_player_idx);
+    if (currentPlayer?.id !== playerId) return { success: false, error: 'Can only build or mortgage on your turn' };
+
     const { data: allProps } = await supabase.from('properties').select('*').eq('room_id', roomId);
 
     const { data: prop } = await supabase
@@ -1049,6 +1057,14 @@ export async function downgradeProperty(
       return { success: false, error: 'Cannot downgrade this tile' };
     }
 
+    const { data: activeRoomData } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!activeRoomData) return { success: false, error: 'Room not found' };
+    if (activeRoomData.status !== 'playing') return { success: false, error: 'Game not in progress' };
+
+    const { data: players } = await supabase.from('players').select('*').eq('room_id', roomId).order('turn_order');
+    const currentPlayer = players?.find((_, idx) => idx === activeRoomData.current_player_idx);
+    if (currentPlayer?.id !== playerId) return { success: false, error: 'Can only build or mortgage on your turn' };
+
     const { data: prop } = await supabase
       .from('properties')
       .select('*')
@@ -1103,6 +1119,14 @@ export async function mortgageProperty(
     const tile = TILES[tileId];
     if (!tile.mortgageValue) return { success: false, error: 'This tile has no mortgage value' };
 
+    const { data: activeRoomData } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!activeRoomData) return { success: false, error: 'Room not found' };
+    if (activeRoomData.status !== 'playing') return { success: false, error: 'Game not in progress' };
+
+    const { data: players } = await supabase.from('players').select('*').eq('room_id', roomId).order('turn_order');
+    const currentPlayer = players?.find((_, idx) => idx === activeRoomData.current_player_idx);
+    if (currentPlayer?.id !== playerId) return { success: false, error: 'Can only build or mortgage on your turn' };
+
     const { data: prop } = await supabase
       .from('properties')
       .select('*')
@@ -1154,6 +1178,14 @@ export async function unmortgageProperty(
 
     const tile = TILES[tileId];
     if (!tile.mortgageValue) return { success: false, error: 'This tile has no mortgage value' };
+
+    const { data: activeRoomData } = await supabase.from('game_rooms').select('*').eq('id', roomId).single();
+    if (!activeRoomData) return { success: false, error: 'Room not found' };
+    if (activeRoomData.status !== 'playing') return { success: false, error: 'Game not in progress' };
+
+    const { data: players } = await supabase.from('players').select('*').eq('room_id', roomId).order('turn_order');
+    const currentPlayer = players?.find((_, idx) => idx === activeRoomData.current_player_idx);
+    if (currentPlayer?.id !== playerId) return { success: false, error: 'Can only build or mortgage on your turn' };
 
     const { data: prop } = await supabase
       .from('properties')
@@ -1327,7 +1359,9 @@ export async function proposeTrade(
     // Only current player may propose
     const currentPlayer = players?.[room.current_player_idx];
     if (currentPlayer?.id !== fromPlayerId) return { success: false, error: 'Can only trade on your turn' };
-    if (room.turn_phase !== 'end') return { success: false, error: 'Can only trade at end of your turn' };
+    if (room.turn_phase !== 'end' && room.turn_phase !== 'action') {
+      return { success: false, error: 'Can only trade during your turn' };
+    }
 
     if (offerCash < 0 || requestCash < 0) return { success: false, error: 'Cash amounts cannot be negative' };
     if (offerCash > fromPlayer.balance) return { success: false, error: 'Insufficient cash to offer' };

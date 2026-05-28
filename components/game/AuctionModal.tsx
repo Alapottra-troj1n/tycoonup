@@ -18,9 +18,10 @@ interface AuctionModalProps {
   room: GameRoom;
   players: Player[];
   myPlayer: Player;
+  onManageProperties?: () => void;
 }
 
-export default function AuctionModal({ room, players, myPlayer }: AuctionModalProps) {
+export default function AuctionModal({ room, players, myPlayer, onManageProperties }: AuctionModalProps) {
   const pending = room.pending_action;
   if (pending?.type !== 'auction') return null;
 
@@ -74,9 +75,10 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
         position: 'fixed', inset: 0, zIndex: 50,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 16,
-        background: 'oklch(0.08 0.02 260 / 0.9)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
+        background: 'transparent',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        pointerEvents: 'none',
       }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -92,6 +94,7 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
           borderRadius: 'var(--r-2xl)',
           boxShadow: `0 0 50px ${setColor}15, var(--shadow-xl)`,
           overflow: 'hidden',
+          pointerEvents: 'auto',
         }}
         initial={{ scale: 0.82, y: 20 }}
         animate={{ scale: 1, y: 0 }}
@@ -217,10 +220,30 @@ export default function AuctionModal({ room, players, myPlayer }: AuctionModalPr
           </div>
 
           {/* Balance hint */}
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
-            Your balance: <span style={{ color: 'var(--neon-cyan)' }}>{formatMoney(myPlayer.balance)}</span>
-            <span style={{ color: 'var(--stroke-strong)', margin: '0 6px' }}>·</span>
-            Min bid: <span style={{ color: 'var(--text-primary)' }}>{formatMoney(minBid)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
+            <div>
+              Your balance: <span style={{ color: 'var(--neon-cyan)' }}>{formatMoney(myPlayer.balance)}</span>
+              <span style={{ color: 'var(--stroke-strong)', margin: '0 6px' }}>·</span>
+              Min bid: <span style={{ color: 'var(--text-primary)' }}>{formatMoney(minBid)}</span>
+            </div>
+            {onManageProperties && (
+              <button
+                onClick={onManageProperties}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 8px', borderRadius: 'var(--r-sm)',
+                  background: 'oklch(0.82 0.17 75 / 0.12)',
+                  border: '1px solid oklch(0.82 0.17 75 / 0.3)',
+                  color: 'var(--neon-amber)',
+                  cursor: 'pointer',
+                  fontSize: 9,
+                  fontWeight: 600,
+                  transition: 'all var(--dur-fast) var(--ease-out)',
+                }}
+              >
+                <span>💼</span> Raise Cash
+              </button>
+            )}
           </div>
 
           {error && (

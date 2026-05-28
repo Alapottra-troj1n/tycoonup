@@ -6,6 +6,7 @@ import type { GameRoom, Player, Property } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
 import { rollDice, endTurn, payJailFine, useGoojfCard } from '@/app/actions/game';
 import PropertyManager from './PropertyManager';
+import { playClick, playHover } from '@/lib/sounds';
 
 interface ActionPanelProps {
   room: GameRoom;
@@ -40,7 +41,11 @@ function ActionBtn({
   return (
     <button
       disabled={disabled}
-      onClick={onClick}
+      onClick={() => {
+        playClick(variant === 'primary' || variant === 'end');
+        if (onClick) onClick();
+      }}
+      onMouseEnter={() => !disabled && playHover()}
       style={{
         width: fullWidth ? '100%' : 'auto',
         padding: '10px 14px',
@@ -125,7 +130,8 @@ export default function ActionPanel({ room, myPlayer, isMyTurn, properties, allP
             </span>
             {myOwnedCount > 0 && (
               <button
-                onClick={() => setShowProps(true)}
+                onClick={() => { playClick(); setShowProps(true); }}
+                onMouseEnter={() => playHover()}
                 style={{
                   padding: '3px 8px', borderRadius: 'var(--r-pill)',
                   fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 600,

@@ -36,9 +36,10 @@ export default function TaxChoiceModal({ room, myPlayer }: TaxChoiceModalProps) 
         position: 'fixed', inset: 0, zIndex: 50,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 16,
-        background: 'oklch(0.1 0.02 260 / 0.88)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
+        background: 'transparent',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        pointerEvents: 'none',
       }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -50,6 +51,7 @@ export default function TaxChoiceModal({ room, myPlayer }: TaxChoiceModalProps) 
           border: '1px solid var(--stroke-soft)',
           borderRadius: 'var(--r-2xl)',
           overflow: 'hidden',
+          pointerEvents: 'auto',
         }}
         initial={{ scale: 0.94, y: 12 }}
         animate={{ scale: 1, y: 0 }}
