@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useState, useRef } from 'react';
+import { useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import type { GameRoom, Player, Property, Tile } from '@/lib/types';
 import { useGameStore } from '@/lib/store';
 import { getSupabaseClient } from '@/lib/supabase';
@@ -67,7 +67,7 @@ export default function GameRoomClient({
     room, players, properties,
     setRoom, setPlayers, setProperties,
     upsertPlayer, upsertProperty, setMyPlayerId,
-    lastDiceRoll, diceAnimating, frozenPlayers,
+    lastDiceRoll, diceAnimating,
   } = useGameStore();
 
   const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
@@ -264,9 +264,16 @@ export default function GameRoomClient({
     (room ?? initialRoom).pending_action?.type,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const activeRoom       = room ?? initialRoom;
+  const rawPlayers       = players.length > 0 ? players : initialPlayers;
+  // Memoize activePlayers to ensure a stable reference unless visual state changes
+  const activePlayers    = useMemo(() => {
+    return rawPlayers
+      .slice().sort((a, b) => a.turn_order - b.turn_order);
+  }, [rawPlayers]);
+
   // Token move sounds — fire once per tile as player position changes
   useEffect(() => {
-    const activePlayers = (players.length > 0 ? players : initialPlayers);
     activePlayers.forEach((p) => {
       const prev = prevPlayerPositionsRef.current[p.id];
       if (prev !== undefined && prev !== p.position) {
@@ -279,13 +286,7 @@ export default function GameRoomClient({
       }
       prevPlayerPositionsRef.current[p.id] = p.position;
     });
-  }, [players]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const activeRoom       = room ?? initialRoom;
-  // While dice are animating, freeze player positions at their pre-roll state
-  const rawPlayers       = players.length > 0 ? players : initialPlayers;
-  const activePlayers    = (diceAnimating && frozenPlayers ? frozenPlayers : rawPlayers)
-    .slice().sort((a, b) => a.turn_order - b.turn_order);
+  }, [activePlayers]); // eslint-disable-line react-hooks/exhaustive-deps
   const activeProperties = properties.length > 0 ? properties : initialProperties;
   const myPlayer         = activePlayers.find((p) => p.id === myPlayerId) ?? null;
   const currentPlayer    = activePlayers[activeRoom.current_player_idx] ?? null;
@@ -456,16 +457,24 @@ export default function GameRoomClient({
       </div>
 
       {/* ── Center ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, position: 'relative' }}>
         {/* Top turn bar */}
         <div style={{
-          padding: '9px 16px',
-          borderBottom: '1px solid var(--stroke-hairline)',
+          position: 'absolute',
+          top: 16,
+          left: 16,
+          right: 16,
+          zIndex: 40,
+          padding: '8px 16px',
+          border: '1px solid var(--stroke-hairline)',
+          borderRadius: 'var(--r-xl)',
           background: 'var(--bg-glass-strong)',
-          backdropFilter: 'blur(14px)',
-          WebkitBackdropFilter: 'blur(14px)',
-          display: 'flex', alignItems: 'center', gap: 10,
-          flexShrink: 0,
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          boxShadow: 'var(--shadow-lg)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
         }}>
           {/* Turn chip */}
           <div style={{
@@ -558,6 +567,7 @@ export default function GameRoomClient({
             onEndTurn={handleEndTurn}
             isRollLoading={rollLoading || diceAnimating}
             isEndLoading={endLoading}
+            eventLog={activeRoom.event_log ?? []}
           />
         </div>
       </div>

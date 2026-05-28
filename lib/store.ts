@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { GameRoom, Player, Property, EventLogEntry } from './types';
+import type { GameRoom, Player, Property } from './types';
 
 interface GameStore {
   room: GameRoom | null;
@@ -10,8 +10,10 @@ interface GameStore {
   myPlayerId: string | null;
   lastDiceRoll: [number, number] | null;
   diceAnimating: boolean;
-  /** Snapshot of players frozen at their pre-roll positions during dice animation */
-  frozenPlayers: Player[] | null;
+
+  pendingPlayerUpdate: Player | null;
+  walkingPlayerId: string | null;
+  walkingTargetPosition: number | null;
 
   setRoom: (room: GameRoom) => void;
   setPlayers: (players: Player[]) => void;
@@ -21,6 +23,8 @@ interface GameStore {
   setMyPlayerId: (id: string) => void;
   triggerDiceRoll: (roll: [number, number]) => void;
   stopDiceAnimation: () => void;
+  stopDiceSpin: () => void;
+  startWalking: () => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -30,7 +34,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
   myPlayerId: null,
   lastDiceRoll: null,
   diceAnimating: false,
-  frozenPlayers: null,
+
+  pendingPlayerUpdate: null,
+  walkingPlayerId: null,
+  walkingTargetPosition: null,
 
   setRoom: (room) => {
     const prev = get().room;
@@ -50,9 +57,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
     );
     set({ room });
     if (isNewRoll) {
-      // Freeze player positions at their current (pre-move) state before animation starts
-      set({ lastDiceRoll: room.dice_roll as [number, number], diceAnimating: true, frozenPlayers: get().players });
-      setTimeout(() => set({ diceAnimating: false, frozenPlayers: null }), 2500);
+      // Find the player rolling and calculate their exact target position based on the dice roll
+      const sortedPrev = get().players.slice().sort((a, b) => a.turn_order - b.turn_order);
+      const cpPrev = sortedPrev[prev?.current_player_idx ?? 0];
+      const totalRoll = room.dice_roll ? ((room.dice_roll[0] as number) + (room.dice_roll[1] as number)) : 0;
+      const targetPos = cpPrev ? (cpPrev.position + totalRoll) % 40 : null;
+      const walkingId = cpPrev?.id ?? null;
+
+      // Start the dice roll animation
+      if (!get().diceAnimating) {
+        set({
+          lastDiceRoll: room.dice_roll as [number, number],
+          diceAnimating: true,
+          walkingPlayerId: walkingId,
+          walkingTargetPosition: targetPos,
+        });
+        setTimeout(() => get().stopDiceSpin(), 1000);
+        setTimeout(() => get().startWalking(), 1800);
+      } else {
+        set({
+          lastDiceRoll: room.dice_roll as [number, number],
+          walkingPlayerId: get().walkingPlayerId ?? walkingId,
+          walkingTargetPosition: get().walkingTargetPosition ?? targetPos,
+        });
+      }
     } else if (isTurnChange) {
       // Clear stale dice from the previous player's turn so the board shows "waiting" state
       set({ lastDiceRoll: null });
@@ -65,6 +93,35 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((s) => {
       const idx = s.players.findIndex((p) => p.id === player.id);
       if (idx === -1) return { players: [...s.players, player] };
+      const existing = s.players[idx];
+
+      // If a roll/walk is active or pending, we must NOT let the player's position
+      // instantly jump in the store. Instead, we save the update as pending, and update
+      // other player stats (like balance) while keeping their visual position at the old position.
+      const isPositionChange = existing.position !== player.position;
+      const isRollActiveOrPending = s.diceAnimating || s.walkingPlayerId !== null || (s.room?.status === 'playing' && s.room.turn_phase === 'roll');
+
+      if (isPositionChange && isRollActiveOrPending) {
+        const updatedWithOldPosition = { ...player, position: existing.position };
+        const updated = [...s.players];
+        updated[idx] = updatedWithOldPosition;
+
+        // Calculate steps and target pos based on the new position (as backup)
+        const steps = (player.position - existing.position + 40) % 40;
+        const targetPos = (existing.position + steps) % 40;
+
+        setTimeout(() => get().stopDiceSpin(), 1000);
+        setTimeout(() => get().startWalking(), 1800);
+
+        return {
+          players: updated,
+          pendingPlayerUpdate: player,
+          diceAnimating: true,
+          walkingPlayerId: player.id,
+          walkingTargetPosition: s.walkingTargetPosition ?? targetPos,
+        };
+      }
+
       const updated = [...s.players];
       updated[idx] = player;
       return { players: updated };
@@ -84,11 +141,102 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setMyPlayerId: (id) => set({ myPlayerId: id }),
 
   triggerDiceRoll: (roll) => {
-    set({ lastDiceRoll: roll, diceAnimating: true, frozenPlayers: get().players });
-    setTimeout(() => set({ diceAnimating: false, frozenPlayers: null }), 2500);
+    const sortedPrev = get().players.slice().sort((a, b) => a.turn_order - b.turn_order);
+    const cpPrev = get().room ? sortedPrev[get().room!.current_player_idx] : null;
+    const targetPos = cpPrev ? (cpPrev.position + roll[0] + roll[1]) % 40 : null;
+
+    set({
+      lastDiceRoll: roll,
+      diceAnimating: true,
+      walkingPlayerId: cpPrev?.id ?? null,
+      walkingTargetPosition: targetPos,
+    });
+    setTimeout(() => get().stopDiceSpin(), 1000);
+    setTimeout(() => get().startWalking(), 1800);
   },
 
-  stopDiceAnimation: () => set({ diceAnimating: false, frozenPlayers: null }),
+  stopDiceAnimation: () => set({ diceAnimating: false, walkingPlayerId: null, walkingTargetPosition: null, pendingPlayerUpdate: null }),
+  stopDiceSpin: () => set({ diceAnimating: false }),
+
+  startWalking: () => {
+    const { walkingPlayerId, walkingTargetPosition } = get();
+    if (!walkingPlayerId || walkingTargetPosition === null) {
+      set({ walkingPlayerId: null, walkingTargetPosition: null, pendingPlayerUpdate: null });
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const state = get();
+      if (!state.walkingPlayerId || state.walkingTargetPosition === null) {
+        clearInterval(interval);
+        return;
+      }
+
+      const pIdx = state.players.findIndex(p => p.id === state.walkingPlayerId);
+      if (pIdx === -1) {
+        clearInterval(interval);
+        set({ walkingPlayerId: null, walkingTargetPosition: null, pendingPlayerUpdate: null });
+        return;
+      }
+
+      const player = state.players[pIdx];
+      if (player.position === state.walkingTargetPosition) {
+        clearInterval(interval);
+        // Apply pending player updates (like final teleport to jail or GO) once walk finishes
+        const finalUpdate = state.pendingPlayerUpdate;
+        if (finalUpdate) {
+          const finalPlayers = [...state.players];
+          const pIdx2 = finalPlayers.findIndex(p => p.id === finalUpdate.id);
+          if (pIdx2 !== -1) {
+            finalPlayers[pIdx2] = finalUpdate;
+          }
+          set({
+            players: finalPlayers,
+            walkingPlayerId: null,
+            walkingTargetPosition: null,
+            pendingPlayerUpdate: null,
+          });
+        } else {
+          set({ walkingPlayerId: null, walkingTargetPosition: null });
+        }
+        return;
+      }
+
+      // Move player visually exactly 1 tile forward along the perimeter
+      const nextPos = (player.position + 1) % 40;
+      const updatedPlayers = [...state.players];
+      updatedPlayers[pIdx] = { ...player, position: nextPos };
+
+      set({ players: updatedPlayers });
+
+      if (nextPos === state.walkingTargetPosition) {
+        clearInterval(interval);
+        // Delay slightly at the end of the walk to allow the slide animation to finish smoothly
+        setTimeout(() => {
+          const currentState = get();
+          const finalUpdate = currentState.pendingPlayerUpdate;
+          if (finalUpdate) {
+            const finalPlayers = [...currentState.players];
+            const pIdx2 = finalPlayers.findIndex(p => p.id === finalUpdate.id);
+            if (pIdx2 !== -1) {
+              finalPlayers[pIdx2] = finalUpdate;
+            }
+            set({
+              players: finalPlayers,
+              walkingPlayerId: null,
+              walkingTargetPosition: null,
+              pendingPlayerUpdate: null,
+            });
+          } else {
+            set({
+              walkingPlayerId: null,
+              walkingTargetPosition: null,
+            });
+          }
+        }, 220);
+      }
+    }, 260); // Deliberate 260ms walking steps
+  },
 }));
 
 export function selectCurrentPlayer(store: GameStore): Player | null {

@@ -1,6 +1,7 @@
 'use client';
 
 import FlagChip from './FlagChip';
+import PlayerMascot from './PlayerMascot';
 import type { Tile, Player, Property } from '@/lib/types';
 import { SET_COLORS } from '@/lib/game-data';
 
@@ -30,31 +31,6 @@ interface TileCellProps {
   onClick?: () => void;
 }
 
-// ── Player token dot ──────────────────────────────────────────────────────────
-
-const NEON: Record<string, string> = {
-  cyan:    'oklch(0.76 0.12 210)',
-  magenta: 'oklch(0.68 0.13 340)',
-  lime:    'oklch(0.77 0.13 145)',
-  amber:   'oklch(0.76 0.12 72)',
-  violet:  'oklch(0.66 0.12 290)',
-  rose:    'oklch(0.66 0.12 18)',
-};
-
-function PlayerDot({ color, size = 8 }: { color: string; size?: number }) {
-  const c = NEON[color] ?? NEON.cyan;
-  return (
-    <div style={{
-      width: size, height: size,
-      borderRadius: '50%',
-      background: c,
-      boxShadow: `0 0 5px ${c}`,
-      border: '1px solid oklch(1 0 0 / 0.35)',
-      flexShrink: 0,
-    }} />
-  );
-}
-
 // ── Upgrade pips ─────────────────────────────────────────────────────────────
 
 function UpgradePips({ level }: { level: number }) {
@@ -76,7 +52,7 @@ function UpgradePips({ level }: { level: number }) {
 
 const CORNER_ICONS: Record<number, string> = { 0: '🏁', 10: '⛓️', 20: '🅿️', 30: '🚨' };
 
-function CornerTile({ tile, playersOnTile }: { tile: Tile; playersOnTile: Player[] }) {
+function CornerTile({ tile }: { tile: Tile }) {
   return (
     <div style={{
       width: '100%', height: '100%', position: 'relative',
@@ -91,14 +67,6 @@ function CornerTile({ tile, playersOnTile }: { tile: Tile; playersOnTile: Player
       }}>
         {SHORT_NAMES[tile.name] || tile.name}
       </div>
-      {playersOnTile.length > 0 && (
-        <div style={{
-          position: 'absolute', bottom: 5, right: 5,
-          display: 'flex', flexWrap: 'wrap', gap: 2, maxWidth: 28,
-        }}>
-          {playersOnTile.map((p) => <PlayerDot key={p.id} color={p.color} />)}
-        </div>
-      )}
     </div>
   );
 }
@@ -132,11 +100,28 @@ export default function TileCell({
         onClick={onClick}
         style={{
           width: '100%', height: '100%',
+          position: 'relative',
           border: '1px solid var(--stroke-hairline)', borderRadius: 4,
-          overflow: 'hidden', cursor: onClick ? 'pointer' : 'default',
+          cursor: onClick ? 'pointer' : 'default',
         }}
       >
-        <CornerTile tile={tile} playersOnTile={playersOnTile} />
+        <CornerTile tile={tile} />
+        {/* ── Player mascots — always upright, floating, overlapping ── */}
+        {playersOnTile.length > 0 && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20,
+            pointerEvents: 'none',
+          }}>
+            {playersOnTile.map((p, idx) => (
+              <PlayerMascot key={p.id} player={p} index={idx} total={playersOnTile.length} size={28} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -144,7 +129,7 @@ export default function TileCell({
   const isOwned     = !!property?.owner_id;
   const isMortgaged = !!property?.is_mortgaged;
   const upgradeLevel = property?.upgrade_level ?? 0;
-  const showBand    = tile.type === 'country' && !!tile.set;
+  const showBand    = tile.type === 'country' && !!tile.set && isOwned;
   const bandColor   = tile.set ? (SET_COLORS[tile.set] ?? 'transparent') : 'transparent';
 
   // Content rotation — make text readable toward the board center
@@ -173,7 +158,7 @@ export default function TileCell({
       onClick={onClick}
       style={{
         width: '100%', height: '100%',
-        position: 'relative', overflow: 'hidden',
+        position: 'relative',
         border: '1px solid var(--stroke-hairline)', borderRadius: 3,
         background: isMortgaged ? 'oklch(0.18 0.010 255)' :
                     isOwned     ? 'oklch(0.22 0.025 255)' :
@@ -258,14 +243,20 @@ export default function TileCell({
         )}
       </div>
 
-      {/* ── Player dots — always visible, top-right of the cell ── */}
+      {/* ── Player mascots — always upright, floating, overlapping ── */}
       {playersOnTile.length > 0 && (
         <div style={{
-          position: 'absolute', top: 2, right: 2,
-          display: 'flex', flexWrap: 'wrap', gap: 1,
-          maxWidth: 20, zIndex: 10,
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 20,
+          pointerEvents: 'none',
         }}>
-          {playersOnTile.map((p) => <PlayerDot key={p.id} color={p.color} size={7} />)}
+          {playersOnTile.map((p, idx) => (
+            <PlayerMascot key={p.id} player={p} index={idx} total={playersOnTile.length} size={26} />
+          ))}
         </div>
       )}
     </div>

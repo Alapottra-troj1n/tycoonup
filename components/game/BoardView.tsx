@@ -3,7 +3,9 @@
 import { useMemo, useRef, useLayoutEffect, useState, useId } from 'react';
 import { TILES, getTileGridPos } from '@/lib/game-data';
 import TileCell from './TileCell';
-import type { Player, Property } from '@/lib/types';
+import ThreeDDice from './ThreeDDice';
+import { renderMascotSVG } from './PlayerMascot';
+import type { Player, Property, EventLogEntry } from '@/lib/types';
 
 interface BoardViewProps {
   players: Player[];
@@ -23,6 +25,7 @@ interface BoardViewProps {
   onEndTurn?: () => void;
   isRollLoading?: boolean;
   isEndLoading?: boolean;
+  eventLog?: EventLogEntry[];
 }
 
 type TileSide = 'bottom' | 'left' | 'top' | 'right' | 'corner';
@@ -33,54 +36,6 @@ function getTileSide(id: number): TileSide {
   if (id >= 11 && id <= 19) return 'left';
   if (id >= 21 && id <= 29) return 'top';
   return 'right';
-}
-
-// ─── Die face ────────────────────────────────────────────────────────────────
-
-function DieFace({ n, size = 86, spinning = false }: { n: number; size?: number; spinning?: boolean }) {
-  const uid = useId();
-  const [display, setDisplay] = useState(n);
-
-  useLayoutEffect(() => {
-    if (!spinning) { setDisplay(n); return; }
-    let count = 0;
-    const iv = setInterval(() => {
-      setDisplay(Math.ceil(Math.random() * 6));
-      if (++count > 18) clearInterval(iv);
-    }, 80);
-    return () => clearInterval(iv);
-  }, [spinning, n]);
-
-  const dots: Record<number, [number, number][]> = {
-    1: [[0.5, 0.5]],
-    2: [[0.25, 0.25], [0.75, 0.75]],
-    3: [[0.25, 0.25], [0.5, 0.5], [0.75, 0.75]],
-    4: [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]],
-    5: [[0.25, 0.25], [0.75, 0.25], [0.5, 0.5], [0.25, 0.75], [0.75, 0.75]],
-    6: [[0.25, 0.25], [0.75, 0.25], [0.25, 0.5], [0.75, 0.5], [0.25, 0.75], [0.75, 0.75]],
-  };
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64">
-      <defs>
-        <linearGradient id={`df-${uid}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="oklch(0.98 0.005 260)"/>
-          <stop offset="1" stopColor="oklch(0.88 0.01 260)"/>
-        </linearGradient>
-        <filter id={`ds-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="oklch(0 0 0 / 0.25)"/>
-        </filter>
-      </defs>
-      <rect x="4" y="4" width="56" height="56" rx="12"
-        fill={`url(#df-${uid})`}
-        stroke="oklch(0.7 0.01 260)"
-        strokeWidth="0.5"
-        filter={`url(#ds-${uid})`}
-      />
-      {(dots[display] ?? []).map((d, i) => (
-        <circle key={i} cx={d[0] * 64} cy={d[1] * 64} r="4.5" fill="oklch(0.15 0.02 260)"/>
-      ))}
-    </svg>
-  );
 }
 
 // ─── Dice icon (for Roll button) ──────────────────────────────────────────────
@@ -107,6 +62,68 @@ function ArrowIcon({ size = 14, color = 'currentColor' }: { size?: number; color
   );
 }
 
+const TYPE_COLORS: Record<string, string> = {
+  move:   'var(--text-muted)',
+  buy:    'var(--success)',
+  rent:   'var(--neon-amber)',
+  tax:    'var(--danger)',
+  chest:  'var(--neon-cyan)',
+  event:  'var(--neon-magenta)',
+  jail:   'var(--neon-violet)',
+  system: 'var(--text-faint)',
+};
+
+function renderParsedMessage(message: string, players: Player[]) {
+  if (!message) return null;
+  const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const names = players.map(p => escapeRegExp(p.name)).filter(Boolean);
+  if (names.length === 0) return <span>{message}</span>;
+  
+  const regex = new RegExp(`(${names.join('|')})`, 'g');
+  const parts = message.split(regex);
+  
+  return (
+    <span style={{ display: 'inline', alignItems: 'center', flexWrap: 'wrap', lineHeight: 1.4 }}>
+      {parts.map((part, idx) => {
+        const player = players.find(p => p.name === part);
+        if (player) {
+          return (
+            <span 
+              key={idx} 
+              style={{ 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: 3, 
+                fontWeight: 600,
+                verticalAlign: 'middle',
+              }}
+            >
+              <span 
+                style={{ 
+                  display: 'inline-block',
+                  width: 13, 
+                  height: 13, 
+                  borderRadius: '50%',
+                  border: '1px solid oklch(1 0 0 / 0.8)',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                  verticalAlign: 'middle',
+                  background: '#11131e',
+                  transform: 'translateY(-1px)'
+                }}
+              >
+                {renderMascotSVG(player.color)}
+              </span>
+              <span style={{ color: `var(--neon-${player.color})` }}>{player.name}</span>
+            </span>
+          );
+        }
+        return <span key={idx}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 // ─── BoardView ────────────────────────────────────────────────────────────────
 
 export default function BoardView({
@@ -126,6 +143,7 @@ export default function BoardView({
   onEndTurn,
   isRollLoading = false,
   isEndLoading = false,
+  eventLog = [],
 }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.72);
@@ -282,118 +300,247 @@ export default function BoardView({
               </div>
             )}
 
-            {/* Main center content */}
+            {/* Main center content — Perfectly stabilized to prevent layout shifts */}
             <div style={{
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              height: 430, // Stable fixed height for the entire center column
               zIndex: 1,
               padding: '0 20px',
+              textAlign: 'center',
             }}>
 
-              {/* Dice pair */}
-              <div style={{ display: 'flex', gap: 18 }}>
-                <div style={{ transform: 'rotate(-6deg)', filter: 'drop-shadow(0 6px 20px oklch(0 0 0 / 0.5))' }}>
-                  <DieFace n={dice[0]} size={86} spinning={diceAnimating}/>
+              {/* Zone 1: Dice Area (Fixed height) */}
+              <div style={{
+                height: 110,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 24, // slightly larger gap for 3D dice to tumble freely
+              }}>
+                <div style={{ filter: 'drop-shadow(0 8px 24px oklch(0 0 0 / 0.55))' }}>
+                  <ThreeDDice n={dice[0]} size={76} spinning={diceAnimating}/>
                 </div>
-                <div style={{ transform: 'rotate(8deg)', filter: 'drop-shadow(0 6px 20px oklch(0 0 0 / 0.5))' }}>
-                  <DieFace n={dice[1]} size={86} spinning={diceAnimating}/>
+                <div style={{ filter: 'drop-shadow(0 8px 24px oklch(0 0 0 / 0.55))' }}>
+                  <ThreeDDice n={dice[1]} size={76} spinning={diceAnimating}/>
                 </div>
               </div>
 
-              {/* Roll info — hidden while animating */}
-              {!diceAnimating && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-                  {lastDice && rollerLabel && (
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 10,
-                      color: 'var(--text-muted)', letterSpacing: '0.2em', textTransform: 'uppercase',
-                    }}>
-                      {/* If it's my turn and we're in the roll phase, show a "now it's your turn" hint */}
-                      {isMyTurn && turnPhase === 'roll'
-                        ? <><span style={{ color: rollerNeon }}>{rollerLabel}</span> rolled — now it&apos;s your turn!</>
-                        : <><span style={{ color: rollerNeon }}>{rollerLabel}</span> rolled</>}
-                    </div>
-                  )}
-                  {lastDice && (
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>
-                      <span style={{ color: 'var(--neon-cyan)' }}>{dice[0]}</span>
-                      {' '}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>+</span>{' '}
-                      <span style={{ color: 'var(--neon-cyan)' }}>{dice[1]}</span>
-                      {' '}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>=</span>{' '}
-                      <span style={{ fontFamily: 'var(--font-mono)' }}>{diceSum}</span>
-                    </div>
-                  )}
-                  {doublesRolled && lastDice && (
-                    <div style={{
-                      padding: '3px 10px', borderRadius: 999,
-                      background: 'oklch(0.76 0.12 72 / 0.14)',
-                      border: '1px solid oklch(0.76 0.12 72 / 0.34)',
-                      fontFamily: 'var(--font-mono)', fontSize: 10,
-                      color: 'var(--neon-amber)', letterSpacing: '0.08em',
-                    }}>
-                      Doubles — roll again
-                    </div>
-                  )}
-                  {!lastDice && (
-                    <>
-                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em', color: 'var(--text-primary)' }}>
-                        Tycoon<span style={{ color: 'var(--neon-cyan)' }}>UP</span>
-                      </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
-                        World Edition
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Action button — doubles styling/label only revealed after animation ends */}
-              {showActionBtn && (() => {
-                // While dice are still spinning, treat doubles as false so nothing
-                // reveals the result before the animation finishes.
-                const revealedDoubles = doublesRolled && !diceAnimating;
-                return (
-                  <button
-                    disabled={isRollLoading || isEndLoading}
-                    onClick={showRollBtn ? onRoll : onEndTurn}
+              {/* Zone 2: Status & Info Area (Fixed height) */}
+              <div style={{
+                height: 90,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}>
+                {diceAnimating ? (
+                  // Pulse status while rolling to reassure the player and prevent empty space
+                  <div 
                     style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                      padding: '14px 28px',
-                      fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15,
-                      letterSpacing: '-0.01em',
-                      background: showRollBtn
-                        ? 'linear-gradient(180deg, var(--neon-cyan) 0%, oklch(0.60 0.12 210) 100%)'
-                        : revealedDoubles
-                          ? 'linear-gradient(180deg, var(--neon-lime) 0%, oklch(0.62 0.13 145) 100%)'
-                          : 'var(--bg-raised)',
-                      color: (showRollBtn || revealedDoubles) ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)',
-                      border: (showRollBtn || revealedDoubles) ? 'none' : '1px solid var(--stroke-soft)',
-                      borderRadius: 10,
-                      cursor: (isRollLoading || isEndLoading) ? 'not-allowed' : 'pointer',
-                      opacity: (isRollLoading || isEndLoading) ? 0.6 : 1,
-                      boxShadow: showRollBtn
-                        ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.76 0.12 210 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
-                        : revealedDoubles
-                          ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.77 0.13 145 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
-                          : 'var(--shadow-sm)',
-                      transition: 'all var(--dur-fast) var(--ease-out)',
-                      marginTop: 8,
-                      pointerEvents: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 4,
+                      animation: 'tu-pulse 1.4s ease-in-out infinite',
                     }}
                   >
-                    {showRollBtn ? (
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 10,
+                      color: rollerNeon, letterSpacing: '0.2em', textTransform: 'uppercase',
+                    }}>
+                      Shaking the dice...
+                    </div>
+                    <div style={{
+                      fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700,
+                      color: 'var(--text-secondary)', letterSpacing: '-0.02em',
+                    }}>
+                      Let &apos;em roll!
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}>
+                    {lastDice && rollerLabel && (
+                      <div style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9.5,
+                        color: 'var(--text-muted)', letterSpacing: '0.2em', textTransform: 'uppercase',
+                      }}>
+                        {isMyTurn && turnPhase === 'roll'
+                          ? <><span style={{ color: rollerNeon }}>{rollerLabel}</span> rolled — now it&apos;s your turn!</>
+                          : <><span style={{ color: rollerNeon }}>{rollerLabel}</span> rolled</>}
+                      </div>
+                    )}
+                    {lastDice && (
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em' }}>
+                        <span style={{ color: 'var(--neon-cyan)' }}>{dice[0]}</span>
+                        {' '}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>+</span>{' '}
+                        <span style={{ color: 'var(--neon-cyan)' }}>{dice[1]}</span>
+                        {' '}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>=</span>{' '}
+                        <span style={{ fontFamily: 'var(--font-mono)' }}>{diceSum}</span>
+                      </div>
+                    )}
+                    {doublesRolled && lastDice && (
+                      <div style={{
+                        padding: '2px 8px', borderRadius: 999,
+                        background: 'oklch(0.76 0.12 72 / 0.14)',
+                        border: '1px solid oklch(0.76 0.12 72 / 0.34)',
+                        fontFamily: 'var(--font-mono)', fontSize: 9,
+                        color: 'var(--neon-amber)', letterSpacing: '0.08em',
+                      }}>
+                        Doubles — roll again
+                      </div>
+                    )}
+                    {!lastDice && (
                       <>
-                        <DiceIcon size={16} color="oklch(0.12 0.02 260)"/>
-                        {isRollLoading ? 'Rolling…' : 'Roll Dice'}
-                      </>
-                    ) : (
-                      <>
-                        <ArrowIcon size={14} color={revealedDoubles ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)'}/>
-                        {isEndLoading ? 'Ending…' : revealedDoubles ? 'Roll again (doubles)' : 'End Turn'}
+                        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, letterSpacing: '-0.01em', color: 'var(--text-primary)' }}>
+                          Tycoon<span style={{ color: 'var(--neon-cyan)' }}>UP</span>
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+                          World Edition
+                        </div>
                       </>
                     )}
-                  </button>
-                );
-              })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Zone 3: Action Button Area (Fixed height) */}
+              <div style={{
+                height: 60,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                {showActionBtn ? (() => {
+                  const revealedDoubles = doublesRolled && !diceAnimating;
+                  return (
+                    <button
+                      disabled={isRollLoading || isEndLoading}
+                      onClick={showRollBtn ? onRoll : onEndTurn}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        padding: '10px 20px',
+                        fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13.5,
+                        letterSpacing: '-0.01em',
+                        background: showRollBtn
+                          ? 'linear-gradient(180deg, var(--neon-cyan) 0%, oklch(0.60 0.12 210) 100%)'
+                          : revealedDoubles
+                            ? 'linear-gradient(180deg, var(--neon-lime) 0%, oklch(0.62 0.13 145) 100%)'
+                            : 'var(--bg-raised)',
+                        color: (showRollBtn || revealedDoubles) ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)',
+                        border: (showRollBtn || revealedDoubles) ? 'none' : '1px solid var(--stroke-soft)',
+                        borderRadius: 8,
+                        cursor: (isRollLoading || isEndLoading) ? 'not-allowed' : 'pointer',
+                        opacity: (isRollLoading || isEndLoading) ? 0.6 : 1,
+                        boxShadow: showRollBtn
+                          ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.76 0.12 210 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
+                          : revealedDoubles
+                            ? '0 0 0 1px oklch(1 0 0 / 0.08), 0 3px 10px oklch(0.77 0.13 145 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.2)'
+                            : 'var(--shadow-sm)',
+                        transition: 'all var(--dur-fast) var(--ease-out)',
+                        pointerEvents: 'auto',
+                      }}
+                    >
+                      {showRollBtn ? (
+                        <>
+                          <DiceIcon size={14} color="oklch(0.12 0.02 260)"/>
+                          {isRollLoading ? 'Rolling…' : 'Roll Dice'}
+                        </>
+                      ) : (
+                        <>
+                          <ArrowIcon size={12} color={revealedDoubles ? 'oklch(0.12 0.02 260)' : 'var(--text-primary)'}/>
+                          {isEndLoading ? 'Ending…' : revealedDoubles ? 'Roll again (doubles)' : 'End Turn'}
+                        </>
+                      )}
+                    </button>
+                  );
+                })() : null}
+              </div>
+
+              {/* Zone 4: Recent Activities (Fixed height, tracks map landing/events in the center) */}
+              <div style={{
+                height: 150,
+                width: '100%',
+                maxWidth: 400,
+                marginTop: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                padding: '10px 14px',
+                borderRadius: 'var(--r-lg)',
+                background: 'oklch(0.17 0.020 255 / 0.40)',
+                border: '1px solid var(--stroke-hairline)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                overflow: 'hidden',
+                textAlign: 'left',
+                justifyContent: 'flex-start',
+              }}>
+                <div style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 9,
+                  color: 'var(--text-faint)',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  borderBottom: '1px solid var(--stroke-hairline)',
+                  paddingBottom: 4,
+                  marginBottom: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  userSelect: 'none',
+                }}>
+                  <span>Recent Activity</span>
+                  <span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: 'var(--neon-cyan)', boxShadow: '0 0 4px var(--neon-cyan)' }} />
+                </div>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  overflow: 'hidden',
+                  flex: 1,
+                }}>
+                  {eventLog.slice(-4).map((entry) => (
+                    <div 
+                      key={entry.id} 
+                      style={{ 
+                        fontSize: 10.5, 
+                        color: TYPE_COLORS[entry.type] ?? 'var(--text-secondary)',
+                        fontFamily: 'var(--font-display)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {renderParsedMessage(entry.message, players)}
+                    </div>
+                  ))}
+                  {eventLog.length === 0 && (
+                    <div style={{ 
+                      fontSize: 10, 
+                      color: 'var(--text-faint)', 
+                      fontFamily: 'var(--font-mono)',
+                      textAlign: 'center',
+                      paddingTop: 24,
+                      userSelect: 'none',
+                    }}>
+                      Waiting for actions...
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
