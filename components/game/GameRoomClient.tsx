@@ -4,14 +4,17 @@ import { useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import type { GameRoom, Player, Property, Tile } from '@/lib/types';
 import { useGameStore } from '@/lib/store';
 import { getSupabaseClient } from '@/lib/supabase';
-import { TILES, PLAYER_COLOR_MAP } from '@/lib/game-data';
+import { boardFor } from '@/lib/game-data';
+import { normalizeSettings } from '@/lib/settings';
 import { formatMoney } from '@/lib/utils';
-import { rollDice, buyProperty, skipBuy, answerChestQuestion, endTurn, chooseTax, rejectTrade } from '@/app/actions/game';
+import { NEON } from '@/lib/colors';
+import { rollDice, buyProperty, skipBuy, answerChestQuestion, endTurn, chooseTax, rejectTrade, placeBid, foldAuction } from '@/app/actions/game';
 import {
   playDiceRoll, playTokenMove, playGameStart, playAuctionStart,
-  playChestOpen, playTurnStart, playClick, playHover, playBuySuccess, playSkip, playTax, playWin,
+  playChestOpen, playTurnStart, playClick, playHover, playTax, playWin, playRentPaid,
   getMasterVolume, setMasterVolume, startAmbient, stopAmbient, setTension, playModalOpen, playModalClose
 } from '@/lib/sounds';
+import { UmbrellaIcon } from './icons';
 import Lobby from './Lobby';
 import BoardView from './BoardView';
 import ActionPanel from './ActionPanel';
@@ -28,10 +31,33 @@ import TaxChoiceModal from './TaxChoiceModal';
 import TradeModal from './TradeModal';
 import TurnAnnouncer from './TurnAnnouncer';
 
-const NEON: Record<string, string> = {
-  cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
-  amber: 'var(--neon-amber)', violet: 'var(--neon-violet)', rose: 'var(--neon-rose)',
-};
+/** Tracks the responsive breakpoint. Lazy-initialized from matchMedia so
+ *  phones don't flash the desktop layout on first client paint. */
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 1080px)').matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1080px)');
+    const update = () => setMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return mobile;
+}
+
+/** Volume glyph shared by the mobile top bar and desktop status bar. */
+function VolumeIcon({ level }: { level: 'full' | 'half' | 'mute' }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+      {level === 'mute' && <><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></>}
+      {level === 'half' && <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>}
+      {level === 'full' && <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>}
+    </svg>
+  );
+}
 
 function TULogo() {
   return (
@@ -66,14 +92,16 @@ export default function GameRoomClient({
   const {
     room, players, properties,
     setRoom, setPlayers, setProperties,
-    upsertPlayer, upsertProperty, setMyPlayerId,
+    upsertPlayer, removePlayer, upsertProperty, setMyPlayerId,
     lastDiceRoll, diceAnimating,
     walkingPlayerId, pendingPlayerUpdate,
   } = useGameStore();
 
+  const isMobile = useIsMobile();
   const [selectedTile, setSelectedTile] = useState<Tile | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
   const [showProps, setShowProps] = useState(false);
+  const [showLogMobile, setShowLogMobile] = useState(false);
   const [rollLoading, setRollLoading] = useState(false);
   const [endLoading, setEndLoading] = useState(false);
   const [showTrade, setShowTrade] = useState(false);
@@ -122,7 +150,14 @@ export default function GameRoomClient({
       .on('postgres_changes', { event: '*', schema: 'public', table: 'game_rooms', filter: `id=eq.${initialRoom.id}` },
         (payload) => { if (payload.new) setRoom(payload.new as GameRoom); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `room_id=eq.${initialRoom.id}` },
-        (payload) => { if (payload.new) upsertPlayer(payload.new as Player); })
+        (payload) => { if (payload.new && payload.eventType !== 'DELETE') upsertPlayer(payload.new as Player); })
+      // DELETE payloads only carry the primary key and ignore column filters,
+      // so listen unfiltered — removing an unknown id is a no-op.
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'players' },
+        (payload) => {
+          const oldId = (payload.old as { id?: string } | null)?.id;
+          if (oldId) removePlayer(oldId);
+        })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'properties', filter: `room_id=eq.${initialRoom.id}` },
         (payload) => { if (payload.new) upsertProperty(payload.new as Property); })
       .subscribe();
@@ -251,7 +286,9 @@ export default function GameRoomClient({
 
   // Close the trade proposal form when a pending trade resolves
   useEffect(() => {
-    if ((room ?? initialRoom).pending_action?.type !== 'trade_offer') setShowTrade(false);
+    if ((room ?? initialRoom).pending_action?.type !== 'trade_offer') {
+      setTimeout(() => setShowTrade(false), 0);
+    }
   }, [(room ?? initialRoom).pending_action?.type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Announce whose turn it is whenever the active player index changes
@@ -278,7 +315,9 @@ export default function GameRoomClient({
 
   // Dismiss the turn announcer as soon as dice start rolling
   useEffect(() => {
-    if (diceAnimating) setTurnAnnounce(null);
+    if (diceAnimating) {
+      setTimeout(() => setTurnAnnounce(null), 0);
+    }
   }, [diceAnimating]);
 
   // ── Sound effects driven by room state changes ──────────────────────────────
@@ -303,6 +342,8 @@ export default function GameRoomClient({
     if (prevPendingTypeRef.current !== 'chest_quiz' && pendingType === 'chest_quiz') playChestOpen();
     // Tax
     if (prevPendingTypeRef.current !== 'income_tax_choice' && pendingType === 'income_tax_choice') playTax();
+    // Rent
+    if (prevPendingTypeRef.current !== 'pay_rent' && pendingType === 'pay_rent') playRentPaid();
     prevPendingTypeRef.current = pendingType;
   }, [
     (room ?? initialRoom).status,
@@ -310,6 +351,8 @@ export default function GameRoomClient({
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeRoom       = room ?? initialRoom;
+  const board            = boardFor(activeRoom);
+  const gameSettings     = useMemo(() => normalizeSettings(activeRoom.settings), [activeRoom.settings]);
   const rawPlayers       = players.length > 0 ? players : initialPlayers;
   // Memoize activePlayers to ensure a stable reference unless visual state changes
   const activePlayers    = useMemo(() => {
@@ -322,8 +365,8 @@ export default function GameRoomClient({
     activePlayers.forEach((p) => {
       const prev = prevPlayerPositionsRef.current[p.id];
       if (prev !== undefined && prev !== p.position) {
-        // Calculate steps moved (wrapping around board of 40 tiles)
-        const steps = (p.position - prev + 40) % 40;
+        // Calculate steps moved (wrapping around the board perimeter)
+        const steps = (p.position - prev + board.size) % board.size;
         // Stagger a tick sound per step
         for (let s = 0; s < Math.min(steps, 12); s++) {
           const isLast = s === Math.min(steps, 12) - 1;
@@ -333,6 +376,42 @@ export default function GameRoomClient({
       prevPlayerPositionsRef.current[p.id] = p.position;
     });
   }, [activePlayers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Bots participate in auctions: they bid up to ~70% of list price, then withdraw
+  useEffect(() => {
+    const r = room ?? initialRoom;
+    if (r.status !== 'playing') return;
+    const pendingA = r.pending_action;
+    if (pendingA?.type !== 'auction') return;
+    const tile = board.tiles[pendingA.tile_id ?? 0];
+    const price = tile?.buyPrice ?? 0;
+    if (!price) return;
+
+    const sorted = playersRef.current.slice().sort((a, b) => a.turn_order - b.turn_order);
+    const folded = pendingA.folded_ids ?? [];
+    const currentBid = pendingA.current_bid ?? 0;
+    const actor = sorted.find(
+      (p) => p.is_bot && !p.is_bankrupt && !folded.includes(p.id) && p.id !== pendingA.highest_bidder_id,
+    );
+    if (!actor) return;
+
+    const cap = Math.floor(price * 0.7);
+    const nextBid = currentBid + (currentBid < price / 2 ? 25 : 10);
+    const timer = setTimeout(() => {
+      if (nextBid <= cap && actor.balance >= nextBid) {
+        placeBid(r.id, actor.id, nextBid).catch(() => {});
+      } else {
+        foldAuction(r.id, actor.id).catch(() => {});
+      }
+    }, 1200 + Math.random() * 1300);
+    return () => clearTimeout(timer);
+  }, [
+    (room ?? initialRoom).pending_action?.type,
+    (room ?? initialRoom).pending_action?.current_bid,
+    (room ?? initialRoom).pending_action?.highest_bidder_id,
+    (room ?? initialRoom).pending_action?.folded_ids?.length,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const activeProperties = properties.length > 0 ? properties : initialProperties;
   const myPlayer         = activePlayers.find((p) => p.id === myPlayerId) ?? null;
   const currentPlayer    = activePlayers[activeRoom.current_player_idx] ?? null;
@@ -376,7 +455,7 @@ export default function GameRoomClient({
   }
 
   if (activeRoom.status === 'finished') {
-    return <WinScreen players={activePlayers} properties={activeProperties} myPlayerId={myPlayerId} />;
+    return <WinScreen players={activePlayers} properties={activeProperties} tiles={board.tiles} myPlayerId={myPlayerId} />;
   }
 
   const isAnimating      = diceAnimating || walkingPlayerId !== null || pendingPlayerUpdate !== null;
@@ -393,7 +472,10 @@ export default function GameRoomClient({
   const phaseLabel = (() => {
     if (activeRoom.doubles_turn) return 'Doubles — roll again';
     if (activeRoom.turn_phase === 'roll') return 'Roll the dice';
-    if (activeRoom.turn_phase === 'action' && pending?.type === 'buy_offer') return 'Buy or Auction?';
+    if (activeRoom.turn_phase === 'rolling') return 'Rolling…';
+    if (activeRoom.turn_phase === 'action' && pending?.type === 'buy_offer') {
+      return gameSettings.auctionsEnabled ? 'Buy or Auction?' : 'Buy or Pass?';
+    }
     if (activeRoom.turn_phase === 'action') return 'Processing…';
     if (activeRoom.turn_phase === 'end') return 'End turn';
     return '';
@@ -407,20 +489,28 @@ export default function GameRoomClient({
     });
   }
 
-  const sidebarStyle: React.CSSProperties = {
+  const railStyle: React.CSSProperties = {
     background: 'var(--bg-glass-strong)',
-    backdropFilter: 'blur(14px)',
-    WebkitBackdropFilter: 'blur(14px)',
+    backdropFilter: 'blur(16px) saturate(1.1)',
+    WebkitBackdropFilter: 'blur(16px) saturate(1.1)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
     flexShrink: 0,
   };
 
-  return (
-    <div className="tu-backdrop" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
-      {/* ── Overlays ── */}
-
+  const overlays = (
+    <>
+      {turnAnnounce && (
+        <TurnAnnouncer
+          key={turnAnnounce.key}
+          playerName={turnAnnounce.name}
+          playerColor={turnAnnounce.color}
+          isMe={turnAnnounce.isMe}
+          isBot={turnAnnounce.isBot}
+          isMobile={isMobile}
+        />
+      )}
       {isChestActive && myPlayer && (
         <ChestModal room={activeRoom} playerId={myPlayerId} question={pending!.question!} isActivePlayer={isChestForMe} />
       )}
@@ -429,6 +519,7 @@ export default function GameRoomClient({
           room={activeRoom}
           players={activePlayers}
           myPlayer={myPlayer}
+          tiles={board.tiles}
           onManageProperties={() => setShowProps(true)}
         />
       )}
@@ -436,8 +527,11 @@ export default function GameRoomClient({
         <BuyOfferModal
           room={activeRoom}
           myPlayer={myPlayer}
+          tiles={board.tiles}
           tileId={pending!.tile_id!}
           price={pending!.price ?? 0}
+          allProperties={activeProperties}
+          auctionsEnabled={gameSettings.auctionsEnabled}
           onManageProperties={() => setShowProps(true)}
         />
       )}
@@ -450,6 +544,7 @@ export default function GameRoomClient({
           myPlayer={myPlayer}
           allPlayers={activePlayers}
           properties={activeProperties}
+          tiles={board.tiles}
           onClose={() => setShowTrade(false)}
         />
       )}
@@ -457,77 +552,266 @@ export default function GameRoomClient({
         room={activeRoom}
         myPlayerId={myPlayerId}
         tile={selectedTile}
+        tiles={board.tiles}
         property={selectedTile ? activeProperties.find((p) => p.tile_id === selectedTile.id) : undefined}
         players={activePlayers}
         allProperties={activeProperties}
         onClose={() => setSelectedTile(null)}
       />
+      {showProps && myPlayer && (
+        <PropertyManager
+          room={activeRoom}
+          player={myPlayer}
+          properties={activeProperties}
+          allPlayers={activePlayers}
+          tiles={board.tiles}
+          onClose={() => setShowProps(false)}
+        />
+      )}
+    </>
+  );
 
-      {/* ── Left sidebar ── */}
-      <div style={{ ...sidebarStyle, width: 230, borderRight: '1px solid var(--stroke-hairline)' }}>
+  // ── Mobile layout ──────────────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div className="tu-backdrop" style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {overlays}
+
+        {/* Top bar */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 12px',
+          borderBottom: '1px solid var(--stroke-hairline)',
+          background: 'var(--bg-glass-strong)',
+          backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+          flexShrink: 0, zIndex: 30,
+        }}>
+          <TULogo />
+          <button
+            onClick={copyCode}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 11px',
+              background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
+              borderRadius: 'var(--r-pill)',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12.5,
+              color: codeCopied ? 'var(--success)' : 'var(--accent)', letterSpacing: '0.12em',
+            }}
+          >
+            {codeCopied ? '✓ copied' : activeRoom.room_code}
+          </button>
+          {gameSettings.vacationCash && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '5px 10px', borderRadius: 'var(--r-pill)',
+              background: 'var(--gold-soft)', border: '1px solid oklch(0.84 0.115 88 / 0.3)',
+              fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11.5, color: 'var(--gold)',
+            }}>
+              <UmbrellaIcon size={11} /> {formatMoney(activeRoom.vacation_pot ?? 0)}
+            </span>
+          )}
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={cycleVolume}
+            style={{
+              width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
+              borderRadius: 'var(--r-md)',
+              color: sfxLevel === 'mute' ? 'var(--danger)' : 'var(--text-muted)',
+            }}
+          >
+            <VolumeIcon level={sfxLevel} />
+          </button>
+        </div>
+
+        {/* Player strip */}
+        <div style={{
+          display: 'flex', gap: 7, padding: '9px 12px',
+          overflowX: 'auto', flexShrink: 0,
+          WebkitOverflowScrolling: 'touch',
+        }}>
+          {activePlayers.map((player) => (
+            <PlayerCard
+              key={player.id}
+              player={player}
+              properties={activeProperties}
+              tiles={board.tiles}
+              isCurrentTurn={currentPlayer?.id === player.id}
+              isMe={player.id === myPlayerId}
+              compact
+            />
+          ))}
+        </div>
+
+        {/* Board */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 8px' }}>
+          <BoardView
+            board={board}
+            players={activePlayers}
+            properties={activeProperties}
+            onTileClick={(id) => setSelectedTile(board.tiles[id])}
+            lastDice={lastDiceRoll ?? undefined}
+            diceAnimating={diceAnimating}
+            isMyTurn={false /* actions live in the dock on mobile */}
+            turnPhase={activeRoom.turn_phase}
+            currentPlayerName={currentPlayer?.name}
+            currentPlayerColor={currentPlayer?.color}
+            diceRollerName={diceRollerName ?? undefined}
+            diceRollerColor={diceRollerColor}
+            doublesRolled={activeRoom.doubles_turn ?? false}
+          />
+        </div>
+
+        {/* Bottom dock */}
+        <div style={{
+          flexShrink: 0, zIndex: 30,
+          borderTop: '1px solid var(--stroke-hairline)',
+          background: 'var(--bg-glass-strong)',
+          backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
+          padding: '10px 12px calc(10px + env(safe-area-inset-bottom))',
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          {myPlayer && (
+            <ActionPanel
+              room={activeRoom}
+              myPlayer={myPlayer}
+              isMyTurn={isMyTurn && !myPlayer.is_bankrupt}
+              properties={activeProperties}
+              jailFine={gameSettings.jailFine}
+              showTurnActions
+            />
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="tu-btn"
+              style={{ flex: 1, padding: '9px 10px', fontSize: 13 }}
+              disabled={!!pending || !myPlayer || myPlayer.is_bankrupt}
+              onClick={() => { playClick(); setShowTrade(true); }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              Trade
+            </button>
+            <button
+              className="tu-btn"
+              style={{ flex: 1, padding: '9px 10px', fontSize: 13 }}
+              onClick={() => { playClick(); setShowProps(true); }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9.5L12 3l9 6.5"/><path d="M5 10v10h14V10"/>
+              </svg>
+              Assets
+            </button>
+            <button
+              className="tu-btn"
+              style={{ flex: 1, padding: '9px 10px', fontSize: 13 }}
+              onClick={() => { playClick(); setShowLogMobile(true); }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+              Log
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile activity sheet */}
+        {showLogMobile && (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'oklch(0.1 0.02 260 / 0.6)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)' }}
+            onClick={(e) => e.target === e.currentTarget && setShowLogMobile(false)}
+          >
+            <div
+              className="tu-dock-in"
+              style={{
+                position: 'absolute', left: 0, right: 0, bottom: 0, height: '62vh',
+                background: 'var(--bg-glass-strong)',
+                backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                borderTop: '1px solid var(--stroke-soft)',
+                borderRadius: 'var(--r-2xl) var(--r-2xl) 0 0',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px', flexShrink: 0 }}>
+                <div style={{ width: 38, height: 4, borderRadius: 999, background: 'var(--stroke-strong)' }} />
+              </div>
+              <EventLog entries={activeRoom.event_log ?? []} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Desktop layout ──────────────────────────────────────────────────────────
+  return (
+    <div className="tu-backdrop" style={{ height: '100vh', display: 'flex', overflow: 'hidden' }}>
+      {overlays}
+
+      {/* ── Left rail: identity + players ── */}
+      <div style={{ ...railStyle, width: 268, borderRight: '1px solid var(--stroke-hairline)' }}>
         {/* Logo bar */}
         <div style={{
-          padding: '13px 16px 11px',
+          padding: '15px 18px 13px',
           borderBottom: '1px solid var(--stroke-hairline)',
           display: 'flex', alignItems: 'center', gap: 10,
           flexShrink: 0,
         }}>
           <TULogo />
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-            TycoonUP
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15.5, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+            Tycoon<span style={{ color: 'var(--accent)' }}>UP</span>
           </span>
         </div>
 
         {/* Room code */}
-        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--stroke-hairline)', flexShrink: 0 }}>
-          <div style={{ marginBottom: 6, fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+        <div style={{ padding: '13px 16px', borderBottom: '1px solid var(--stroke-hairline)', flexShrink: 0 }}>
+          <div style={{ marginBottom: 7, fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color: 'var(--text-faint)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
             Room code
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <div style={{
-              flex: 1, padding: '7px 10px',
-              background: 'var(--bg-raised)',
+              flex: 1, padding: '8px 12px',
+              background: 'var(--bg-input)',
               border: '1px solid var(--stroke-soft)',
               borderRadius: 'var(--r-md)',
-              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 15,
-              color: 'var(--neon-cyan)', letterSpacing: '0.14em',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16,
+              color: 'var(--accent)', letterSpacing: '0.16em',
             }}>
               {activeRoom.room_code}
             </div>
             <button
               onClick={copyCode}
               onMouseEnter={() => playHover()}
+              className="tu-btn"
               style={{
-                padding: '7px 10px',
-                background: codeCopied ? 'oklch(0.78 0.18 150 / 0.15)' : 'var(--bg-raised)',
-                border: `1px solid ${codeCopied ? 'oklch(0.78 0.18 150 / 0.4)' : 'var(--stroke-soft)'}`,
-                borderRadius: 'var(--r-md)',
+                padding: '8px 13px', fontSize: 12,
                 color: codeCopied ? 'var(--success)' : 'var(--text-secondary)',
-                cursor: 'pointer', fontSize: 11,
-                fontFamily: 'var(--font-mono)', fontWeight: 600,
-                transition: 'all var(--dur-fast) var(--ease-out)',
-                whiteSpace: 'nowrap',
+                borderColor: codeCopied ? 'oklch(0.78 0.13 155 / 0.45)' : undefined,
               }}
             >
-              {codeCopied ? '✓ Copied' : 'Copy'}
+              {codeCopied ? '✓' : 'Copy'}
             </button>
           </div>
         </div>
 
         {/* Players header */}
-        <div style={{ padding: '10px 14px 6px', flexShrink: 0 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+        <div style={{ padding: '13px 16px 8px', flexShrink: 0 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color: 'var(--text-faint)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
             Players · {activePlayers.length}
           </span>
         </div>
 
         {/* Players list */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 12px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
           {activePlayers.map((player) => (
             <PlayerCard
               key={player.id}
               player={player}
               properties={activeProperties}
+              tiles={board.tiles}
               isCurrentTurn={currentPlayer?.id === player.id}
               isMe={player.id === myPlayerId}
             />
@@ -535,57 +819,76 @@ export default function GameRoomClient({
         </div>
       </div>
 
-      {/* ── Center ── */}
+      {/* ── Center: the board is the hero ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, position: 'relative' }}>
-        {/* Top turn bar */}
+        {/* Floating status bar */}
         <div style={{
           position: 'absolute',
-          top: 16,
+          top: 14,
           left: 16,
           right: 16,
-          zIndex: 40,
-          padding: '8px 16px',
-          border: '1px solid var(--stroke-hairline)',
+          zIndex: 35,
+          padding: '9px 16px',
+          border: '1px solid var(--stroke-soft)',
           borderRadius: 'var(--r-xl)',
           background: 'var(--bg-glass-strong)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          boxShadow: 'var(--shadow-lg)',
+          backdropFilter: 'blur(18px) saturate(1.1)',
+          WebkitBackdropFilter: 'blur(18px) saturate(1.1)',
+          boxShadow: 'var(--shadow-md), inset 0 1px 0 oklch(1 0 0 / 0.05)',
           display: 'flex',
           alignItems: 'center',
           gap: 10,
         }}>
           {/* Turn chip */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '5px 12px',
-            background: isMyTurn ? 'oklch(0.82 0.17 210 / 0.1)' : 'var(--bg-raised)',
-            border: `1px solid ${isMyTurn ? 'oklch(0.82 0.17 210 / 0.35)' : 'var(--stroke-soft)'}`,
+            display: 'flex', alignItems: 'center', gap: 9,
+            padding: '6px 14px',
+            background: isMyTurn ? 'var(--accent-soft)' : 'var(--bg-raised)',
+            border: `1px solid ${isMyTurn ? 'oklch(0.80 0.11 168 / 0.4)' : 'var(--stroke-soft)'}`,
             borderRadius: 'var(--r-pill)',
             flexShrink: 0,
           }}>
             <div style={{
-              width: 6, height: 6, borderRadius: '50%',
+              width: 7, height: 7, borderRadius: '50%',
               background: currentNeon,
-              boxShadow: `0 0 6px ${currentNeon}`,
               flexShrink: 0,
             }} />
             <span style={{
-              fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
-              color: isMyTurn ? 'var(--neon-cyan)' : 'var(--text-primary)',
+              fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13.5,
+              color: isMyTurn ? 'var(--accent)' : 'var(--text-primary)',
               whiteSpace: 'nowrap',
             }}>
               {isMyTurn ? 'Your turn' : `${currentPlayer?.name ?? '…'}${currentPlayer?.is_bot ? ' · Bot' : ''}`}
             </span>
             {phaseLabel && (
               <>
-                <div style={{ width: 1, height: 12, background: 'var(--stroke-soft)', flexShrink: 0 }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                <div style={{ width: 1, height: 14, background: 'var(--stroke-soft)', flexShrink: 0 }} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                   {phaseLabel}
                 </span>
               </>
             )}
           </div>
+
+          {/* Vacation pot */}
+          {gameSettings.vacationCash && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 13px',
+              background: 'var(--gold-soft)',
+              border: '1px solid oklch(0.84 0.115 88 / 0.3)',
+              borderRadius: 'var(--r-pill)',
+              flexShrink: 0,
+            }}>
+              <span style={{ display: 'flex', color: 'var(--gold)' }}><UmbrellaIcon size={12} /></span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 12.5, color: 'var(--gold)' }}>
+                {formatMoney(activeRoom.vacation_pot ?? 0)}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                pot
+              </span>
+            </div>
+          )}
 
           <div style={{ flex: 1 }} />
 
@@ -595,45 +898,28 @@ export default function GameRoomClient({
             onMouseEnter={() => playHover()}
             title={sfxLevel === 'full' ? 'Sound: Full (click to lower)' : sfxLevel === 'half' ? 'Sound: Half (click to mute)' : 'Sound: Muted (click to unmute)'}
             style={{
-              width: 32, height: 32,
+              width: 34, height: 34,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: sfxLevel === 'mute' ? 'oklch(0.68 0.22 25 / 0.12)' : 'var(--bg-raised)',
-              border: `1px solid ${sfxLevel === 'mute' ? 'oklch(0.68 0.22 25 / 0.35)' : 'var(--stroke-soft)'}`,
+              background: sfxLevel === 'mute' ? 'var(--danger-soft)' : 'var(--bg-raised)',
+              border: `1px solid ${sfxLevel === 'mute' ? 'oklch(0.71 0.155 25 / 0.4)' : 'var(--stroke-soft)'}`,
               borderRadius: 'var(--r-md)',
-              color: sfxLevel === 'mute' ? 'var(--danger)' : sfxLevel === 'half' ? 'var(--neon-amber)' : 'var(--text-muted)',
+              color: sfxLevel === 'mute' ? 'var(--danger)' : sfxLevel === 'half' ? 'var(--gold)' : 'var(--text-muted)',
               cursor: 'pointer',
               flexShrink: 0,
               transition: 'all var(--dur-fast) var(--ease-out)',
             }}
           >
-            {sfxLevel === 'mute' ? (
-              // Muted speaker
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
-              </svg>
-            ) : sfxLevel === 'half' ? (
-              // Low volume speaker
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-              </svg>
-            ) : (
-              // Full volume speaker
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
-              </svg>
-            )}
+            <VolumeIcon level={sfxLevel} />
           </button>
         </div>
 
         {/* Board area */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 16 }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '54px 16px 16px' }}>
           <BoardView
+            board={board}
             players={activePlayers}
             properties={activeProperties}
-            onTileClick={(id) => setSelectedTile(TILES[id])}
+            onTileClick={(id) => setSelectedTile(board.tiles[id])}
             lastDice={lastDiceRoll ?? undefined}
             diceAnimating={diceAnimating}
             isMyTurn={isMyTurn && !myPlayer?.is_bankrupt}
@@ -647,131 +933,60 @@ export default function GameRoomClient({
             onEndTurn={handleEndTurn}
             isRollLoading={rollLoading || diceAnimating}
             isEndLoading={endLoading}
-            eventLog={activeRoom.event_log ?? []}
           />
         </div>
       </div>
 
-      {/* ── Right sidebar ── */}
-      <div style={{ ...sidebarStyle, width: 280, borderLeft: '1px solid var(--stroke-hairline)' }}>
-
-        {/* PropertyManager modal (opened from Quick Actions) */}
-        {showProps && myPlayer && (
-          <PropertyManager
-            room={activeRoom}
-            player={myPlayer}
-            properties={activeProperties}
-            allPlayers={activePlayers}
-            onClose={() => setShowProps(false)}
-          />
-        )}
-
-        {/* ActionPanel — wallet balance + in-jail state + contextual status */}
+      {/* ── Right rail: wallet, actions, activity ── */}
+      <div style={{ ...railStyle, width: 312, borderLeft: '1px solid var(--stroke-hairline)' }}>
+        {/* Wallet + contextual actions */}
         {myPlayer && (
-          <div style={{ padding: '12px 12px 0', flexShrink: 0 }}>
+          <div style={{ padding: '14px 14px 0', flexShrink: 0 }}>
             <ActionPanel
               room={activeRoom}
               myPlayer={myPlayer}
               isMyTurn={isMyTurn && !myPlayer.is_bankrupt}
               properties={activeProperties}
-              allPlayers={activePlayers}
+              jailFine={gameSettings.jailFine}
             />
           </div>
         )}
 
-        {/* Quick Actions panel */}
+        {/* Quick actions */}
         {myPlayer && (
-          <div style={{ padding: '8px 12px 0', flexShrink: 0 }}>
-            <div style={{
-              background: 'var(--bg-glass-strong)',
-              backdropFilter: 'blur(14px)',
-              WebkitBackdropFilter: 'blur(14px)',
-              border: '1px solid var(--stroke-hairline)',
-              borderRadius: 'var(--r-lg)',
-              overflow: 'hidden',
-            }}>
-              {/* Panel header */}
-              <div style={{
-                padding: '11px 14px 9px',
-                borderBottom: '1px solid var(--stroke-hairline)',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>
-                  Quick actions
-                </span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                  {isMyTurn ? 'your turn' : 'your turn soon'}
-                </span>
-              </div>
-
-              {/* Panel body */}
-              <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {/* Propose trade */}
-                <button
-                  onClick={() => { playClick(); setShowTrade(true); }}
-                  onMouseEnter={() => playHover()}
-                  disabled={!isMyTurn || (activeRoom.turn_phase !== 'end' && activeRoom.turn_phase !== 'action')}
-                  style={{
-                  width: '100%', padding: '10px 14px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  background: 'var(--bg-raised)',
-                  border: '1px solid var(--stroke-soft)',
-                  borderRadius: 'var(--r-md)',
-                  fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
-                  color: 'var(--text-primary)',
-                  cursor: (!isMyTurn || activeRoom.turn_phase !== 'end') ? 'not-allowed' : 'pointer',
-                  opacity: (!isMyTurn || activeRoom.turn_phase !== 'end') ? 0.45 : 1,
-                  transition: 'all var(--dur-fast) var(--ease-out)',
-                }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
-                  Propose trade
-                </button>
-
-                {/* Manage properties */}
-                <button
-                  onClick={() => { playClick(); setShowProps(true); }}
-                  onMouseEnter={() => playHover()}
-                  style={{
-                    width: '100%', padding: '8px 14px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    background: 'transparent',
-                    border: '1px solid var(--stroke-soft)',
-                    borderRadius: 'var(--r-md)',
-                    fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12,
-                    color: 'var(--text-secondary)', cursor: 'pointer',
-                    transition: 'all var(--dur-fast) var(--ease-out)',
-                  }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M12 6v12M9 9h4.5a2.5 2.5 0 0 1 0 5H9m0 0h5"/>
-                  </svg>
-                  Manage properties
-                </button>
-
-                {/* Helper text */}
-                <div style={{
-                  fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5,
-                  textAlign: 'center', padding: '4px 8px 0',
-                  fontFamily: 'var(--font-ui)',
-                }}>
-                  Click any tile you own to upgrade, mortgage, or list it for trade.
-                </div>
-              </div>
-            </div>
+          <div style={{ padding: '10px 14px 0', flexShrink: 0, display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { playClick(); setShowTrade(true); }}
+              onMouseEnter={() => playHover()}
+              disabled={!!pending || myPlayer.is_bankrupt}
+              className="tu-btn"
+              style={{ flex: 1, padding: '10px 12px', fontSize: 13 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              Trade
+            </button>
+            <button
+              onClick={() => { playClick(); setShowProps(true); }}
+              onMouseEnter={() => playHover()}
+              className="tu-btn"
+              style={{ flex: 1, padding: '10px 12px', fontSize: 13 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9.5L12 3l9 6.5"/><path d="M5 10v10h14V10"/>
+              </svg>
+              Assets
+            </button>
           </div>
         )}
 
-        {/* EventLog */}
+        {/* Activity feed */}
         <div style={{
           flex: 1,
-          margin: '12px',
-          background: 'var(--bg-glass-strong)',
-          backdropFilter: 'blur(14px)',
-          WebkitBackdropFilter: 'blur(14px)',
+          margin: '12px 14px 14px',
+          background: 'oklch(1 0 0 / 0.015)',
           border: '1px solid var(--stroke-hairline)',
           borderRadius: 'var(--r-lg)',
           overflow: 'hidden',

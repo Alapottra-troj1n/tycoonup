@@ -1,22 +1,25 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import FlagChip from './FlagChip';
 import PlayerMascot from './PlayerMascot';
 import type { Tile, Player, Property } from '@/lib/types';
-import { PLAYER_COLOR_MAP } from '@/lib/game-data';
+import { SET_COLORS } from '@/lib/game-data';
+import { playerHexOf } from '@/lib/colors';
+import { TILE_TYPE_ICONS, ChainIcon, UmbrellaIcon, SirenIcon, FlagIcon, LockIcon } from './icons';
 
 const SHORT_NAMES: Record<string, string> = {
-  'Ransom to Underworld': 'R. Underworld',
-  'Rio de Janeiro': 'Rio de Jan.',
-  'Global Airways': 'Gl. Airways',
-  'Maritime Hub': 'Mar. Hub',
-  'Free Parking': 'Free Park.',
-  'Global Event': 'Gl. Event',
-  'Income Tax': 'Inc. Tax',
+  'Ransom to Underworld': 'Underworld',
+  'Rio de Janeiro': 'Rio',
+  'Global Airways': 'Airways',
+  'Maritime Hub': 'Maritime',
+  'Free Parking': 'Free Parking',
+  'Global Event': 'Event',
+  'Income Tax': 'Income Tax',
   'Go To Jail': 'Go To Jail',
-  'World Chest': 'World Chest',
-  'Global Bank': 'Gl. Bank',
-  'Los Angeles': 'L. Angeles',
+  'World Chest': 'Chest',
+  'Global Bank': 'Bank',
+  'Los Angeles': 'Los Angeles',
   'Trade Route': 'Trade Route',
 };
 
@@ -34,15 +37,16 @@ interface TileCellProps {
 
 // ── Upgrade pips ─────────────────────────────────────────────────────────────
 
-function UpgradePips({ level }: { level: number }) {
+function UpgradePips({ level, color }: { level: number; color: string }) {
   if (level <= 0) return null;
-  const isHotel = level >= 5;
+  const isMax = level >= 4;
   return (
-    <div style={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-      {Array.from({ length: Math.min(level, 5) }).map((_, i) => (
+    <div style={{ display: 'flex', gap: 2.5, justifyContent: 'center' }}>
+      {Array.from({ length: Math.min(level, 4) }).map((_, i) => (
         <div key={i} style={{
-          width: 5, height: 5, borderRadius: isHotel ? 2 : '50%',
-          background: isHotel ? 'oklch(0.64 0.16 25)' : 'oklch(0.72 0.14 150)',
+          width: 5.5, height: 5.5,
+          borderRadius: isMax ? 1.5 : '50%',
+          background: isMax ? 'var(--gold)' : color,
         }} />
       ))}
     </div>
@@ -51,20 +55,27 @@ function UpgradePips({ level }: { level: number }) {
 
 // ── Corner tile ───────────────────────────────────────────────────────────────
 
-const CORNER_ICONS: Record<number, string> = { 0: '🏁', 10: '⛓️', 20: '🅿️', 30: '🚨' };
+const CORNER_META: Record<string, { Icon: (p: { size?: number; style?: React.CSSProperties }) => React.JSX.Element; tint: string; iconColor: string }> = {
+  go:             { Icon: FlagIcon,     tint: 'oklch(0.78 0.13 155 / 0.10)', iconColor: 'var(--success)' },
+  jail:           { Icon: ChainIcon,    tint: 'oklch(0.66 0.10 290 / 0.10)', iconColor: 'var(--text-muted)' },
+  'free-parking': { Icon: UmbrellaIcon, tint: 'oklch(0.84 0.115 88 / 0.10)', iconColor: 'var(--gold)' },
+  'go-to-jail':   { Icon: SirenIcon,    tint: 'oklch(0.71 0.155 25 / 0.10)', iconColor: 'var(--danger)' },
+};
 
 function CornerTile({ tile }: { tile: Tile }) {
+  const meta = CORNER_META[tile.type];
   return (
     <div style={{
       width: '100%', height: '100%', position: 'relative',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      gap: 3, background: 'oklch(0.19 0.022 255)',
+      gap: 5,
+      background: `linear-gradient(150deg, ${meta?.tint ?? 'transparent'} 0%, transparent 70%), oklch(0.21 0.024 260)`,
     }}>
-      <div style={{ fontSize: 24 }}>{CORNER_ICONS[tile.id] ?? '?'}</div>
+      {meta && <div style={{ color: meta.iconColor, display: 'flex' }}><meta.Icon size={22} /></div>}
       <div style={{
-        fontFamily: 'var(--font-mono)', fontSize: 9, textTransform: 'uppercase',
-        letterSpacing: '0.07em', color: 'var(--text-muted)', textAlign: 'center',
-        lineHeight: 1.2, padding: '0 4px',
+        fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 10.5,
+        letterSpacing: '0.02em', color: 'var(--text-secondary)', textAlign: 'center',
+        lineHeight: 1.2, padding: '0 6px',
       }}>
         {SHORT_NAMES[tile.name] || tile.name}
       </div>
@@ -72,28 +83,32 @@ function CornerTile({ tile }: { tile: Tile }) {
   );
 }
 
-// ── Tile icons for non-country tiles ─────────────────────────────────────────
-
-const TILE_ICONS: Record<string, string> = {
-  chest: '📦', event: '⚡', tax: '💸',
-  transport: '✈️', utility: '⚙️',
-  jail: '⛓️', 'free-parking': '🅿️', 'go-to-jail': '🚨', go: '🏁',
-};
-
 // ── Main TileCell ─────────────────────────────────────────────────────────────
 //
-// Rotation strategy so text always reads toward the board center:
-//   bottom row (ids 1-9)   → no rotation   (text points up, toward center)
-//   left col  (ids 11-19)  → rotate(90deg) (text points right, toward center)
-//   top row   (ids 21-29)  → no rotation   (text points down, toward center)
-//   right col (ids 31-39)  → rotate(-90deg)(text points left, toward center)
-//
-// Color band is pinned to the OUTER edge of each tile:
-//   bottom → bottom edge   left → left edge   top → top edge   right → right edge
+// Visual language (richup-style):
+//  · Property tiles start with a NEUTRAL gray band — the board reads calm and
+//    unclaimed until players start buying.
+//  · When bought, the band fills with the OWNER's color. That color band is the
+//    single ownership signal.
+//  · A small muted set-color dot on the band preserves set identity so players
+//    can still plan monopolies at a glance.
 
 export default function TileCell({
   tile, property, owner, playersOnTile, isCorner, side, onClick,
 }: TileCellProps) {
+  // Flash the tile briefly whenever its owner changes (purchase, auction, trade)
+  const prevOwnerRef = useRef<string | null | undefined>(undefined);
+  const [justClaimed, setJustClaimed] = useState(false);
+  const ownerId = property?.owner_id ?? null;
+  useEffect(() => {
+    const prev = prevOwnerRef.current;
+    prevOwnerRef.current = ownerId;
+    if (prev === undefined || prev === ownerId || !ownerId) return;
+    setJustClaimed(true);
+    const t = setTimeout(() => setJustClaimed(false), 750);
+    return () => clearTimeout(t);
+  }, [ownerId]);
+
   if (isCorner) {
     return (
       <div
@@ -102,21 +117,17 @@ export default function TileCell({
         style={{
           width: '100%', height: '100%',
           position: 'relative',
-          border: '1px solid var(--stroke-hairline)', borderRadius: 4,
+          border: '1px solid var(--stroke-hairline)', borderRadius: 8,
+          overflow: 'hidden',
           cursor: onClick ? 'pointer' : 'default',
         }}
       >
         <CornerTile tile={tile} />
-        {/* ── Player mascots — always upright, floating, overlapping ── */}
         {playersOnTile.length > 0 && (
           <div style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 20,
-            pointerEvents: 'none',
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 20, pointerEvents: 'none',
           }}>
             {playersOnTile.map((p, idx) => (
               <PlayerMascot key={p.id} player={p} index={idx} total={playersOnTile.length} size={28} />
@@ -127,62 +138,92 @@ export default function TileCell({
     );
   }
 
-  const isOwned     = !!property?.owner_id;
-  const isMortgaged = !!property?.is_mortgaged;
+  const isOwned      = !!property?.owner_id;
+  const isMortgaged  = !!property?.is_mortgaged;
   const upgradeLevel = property?.upgrade_level ?? 0;
-  
-  // Show color band for any owned country, transport, or utility tile
-  const showBand    = (tile.type === 'country' || tile.type === 'transport' || tile.type === 'utility') && isOwned;
-  
-  // The color band displays the owner's player color instead of the country set color
-  const ownerColorHex = owner ? (PLAYER_COLOR_MAP[owner.color]?.hex ?? '#ffffff') : '#ffffff';
-  const bandColor   = ownerColorHex;
+  const isProperty   = tile.type === 'country' || tile.type === 'transport' || tile.type === 'utility';
+
+  // Set identity — shown only as a small muted dot on the band
+  const setColor =
+    tile.type === 'country'   ? (tile.set ? SET_COLORS[tile.set] : '#888') :
+    tile.type === 'transport' ? 'var(--set-transit)' :
+    tile.type === 'utility'   ? 'var(--set-utility)' : null;
+
+  const ownerColorHex = owner ? playerHexOf(owner.color) : null;
+
+  // Band = ownership: neutral gray until bought, then the owner's color
+  const bandColor = isMortgaged
+    ? 'var(--band-neutral-mortgaged)'
+    : isOwned && ownerColorHex ? ownerColorHex : 'var(--band-neutral)';
+  // On a mortgaged tile the dot shows who owns it; otherwise it shows the set
+  const dotColor = isMortgaged && ownerColorHex ? ownerColorHex : setColor;
 
   // Content rotation — make text readable toward the board center
   const contentRotation =
     side === 'left'  ? 'rotate(90deg)'  :
     side === 'right' ? 'rotate(-90deg)' :
-    'rotate(0deg)'; // bottom & top both show text without rotation (bottom: text up, top: text down from above)
+    'rotate(0deg)';
 
-  // The color band sits on the OUTER edge of each tile
+  const BAND = 12;
+  // The set band sits on the OUTER edge of each tile
   const bandStyle: React.CSSProperties =
-    side === 'bottom' ? { bottom: 0,  left: 0, right: 0, height: 13 } :
-    side === 'top'    ? { top: 0,    left: 0, right: 0, height: 13 } :
-    side === 'left'   ? { left: 0,  top: 0, bottom: 0, width: 13 } :
-                        { right: 0, top: 0, bottom: 0, width: 13 };
+    side === 'bottom' ? { bottom: 0, left: 0, right: 0, height: BAND } :
+    side === 'top'    ? { top: 0,   left: 0, right: 0, height: BAND } :
+    side === 'left'   ? { left: 0,  top: 0, bottom: 0, width: BAND } :
+                        { right: 0, top: 0, bottom: 0, width: BAND };
 
-  // Padding that keeps content away from the color band so they don't overlap
+  // Small set-identity dot centered on the band
+  const DOT = 6;
+  const dotStyle: React.CSSProperties =
+    side === 'bottom' ? { bottom: BAND / 2 - DOT / 2, left: '50%', transform: 'translateX(-50%)' } :
+    side === 'top'    ? { top: BAND / 2 - DOT / 2,    left: '50%', transform: 'translateX(-50%)' } :
+    side === 'left'   ? { left: BAND / 2 - DOT / 2,   top: '50%',  transform: 'translateY(-50%)' } :
+                        { right: BAND / 2 - DOT / 2,  top: '50%',  transform: 'translateY(-50%)' };
+
   const contentPadding: React.CSSProperties =
-    side === 'bottom' ? { paddingBottom: 14 } :
-    side === 'top'    ? { paddingTop: 14 }    :
-    side === 'left'   ? { paddingLeft: 14 }   :
-                        { paddingRight: 14 };
+    side === 'bottom' ? { paddingBottom: BAND + 2 } :
+    side === 'top'    ? { paddingTop: BAND + 2 }    :
+    side === 'left'   ? { paddingLeft: BAND + 2 }   :
+                        { paddingRight: BAND + 2 };
 
   return (
     <div
-      className="tile-cell"
+      className={`tile-cell${justClaimed ? ' tu-tile-claimed' : ''}`}
       onClick={onClick}
       style={{
         width: '100%', height: '100%',
         position: 'relative',
-        border: isOwned && owner ? `1px solid ${ownerColorHex}` : '1px solid var(--stroke-hairline)',
-        borderRadius: 3,
-        background: isMortgaged ? 'oklch(0.18 0.010 255)' :
-                    (isOwned && owner) ? `linear-gradient(135deg, oklch(0.22 0.025 255) 0%, ${ownerColorHex}12 100%)` :
-                                  'oklch(0.19 0.018 255)',
-        boxShadow: (isOwned && owner) ? `inset 0 0 6px ${ownerColorHex}25, 0 0 4px ${ownerColorHex}15` : 'none',
+        border: isOwned && ownerColorHex && !isMortgaged
+          ? `1px solid ${ownerColorHex}55`
+          : '1px solid var(--stroke-hairline)',
+        borderRadius: 6,
+        background: isOwned && ownerColorHex && !isMortgaged
+          ? `linear-gradient(${ownerColorHex}0d, ${ownerColorHex}0d), var(--bg-tile)`
+          : 'var(--bg-tile)',
+        boxShadow: 'inset 0 1px 0 oklch(1 0 0 / 0.03)',
         cursor: onClick ? 'pointer' : 'default',
-        opacity: isMortgaged ? 0.55 : 1,
-        transition: 'all var(--dur-fast)',
+        opacity: isMortgaged ? 0.6 : 1,
+        overflow: 'hidden',
       }}
     >
-      {/* ── Color band (always on the outer edge) ── */}
-      {showBand && (
+      {/* ── Ownership band: neutral gray → owner color when bought ── */}
+      {isProperty && (
         <div style={{
           position: 'absolute', ...bandStyle,
           background: bandColor,
           zIndex: 1,
-          opacity: isMortgaged ? 0.4 : 1,
+        }} />
+      )}
+
+      {/* ── Set-identity dot on the band ── */}
+      {isProperty && dotColor && (
+        <div style={{
+          position: 'absolute', ...dotStyle,
+          width: DOT, height: DOT, borderRadius: '50%',
+          background: dotColor,
+          opacity: isOwned ? 0.9 : 0.65,
+          boxShadow: isOwned ? '0 0 0 1px oklch(0 0 0 / 0.35)' : 'none',
+          zIndex: 3,
         }} />
       )}
 
@@ -193,31 +234,30 @@ export default function TileCell({
         alignItems: 'center', justifyContent: 'center',
         transform: contentRotation,
         zIndex: 2,
+        gap: 3,
+        padding: 3,
         ...contentPadding,
-        gap: 2,
-        padding: '2px',
-        // override the contentPadding gap — merge both
-        ...(showBand ? contentPadding : {}),
       }}>
 
         {/* Flag for country tiles */}
         {tile.type === 'country' && tile.flag && (
-          <FlagChip code={tile.flag} size={14} round />
+          <FlagChip code={tile.flag} size={13} round />
         )}
 
         {/* Icon for non-country tiles */}
-        {tile.type !== 'country' && (
-          <span style={{ fontSize: 13, lineHeight: 1, display: 'block', textAlign: 'center' }}>
-            {TILE_ICONS[tile.type] ?? ''}
+        {tile.type !== 'country' && TILE_TYPE_ICONS[tile.type] && (
+          <span style={{ lineHeight: 0, display: 'flex', justifyContent: 'center', color: 'var(--text-muted)' }}>
+            {TILE_TYPE_ICONS[tile.type]({ size: 14 })}
           </span>
         )}
 
         {/* Tile name */}
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 8.5, textAlign: 'center',
+          fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 9.5,
+          textAlign: 'center',
           color: isMortgaged ? 'var(--text-faint)' : 'var(--text-secondary)',
-          lineHeight: 1.1, letterSpacing: '0.01em',
-          maxWidth: '95%',
+          lineHeight: 1.15, letterSpacing: '0.005em',
+          maxWidth: '96%',
           display: '-webkit-box',
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical',
@@ -227,31 +267,19 @@ export default function TileCell({
           {SHORT_NAMES[tile.name] || tile.name}
         </div>
 
-        {/* Price (only when unowned country/transport/utility) */}
+        {/* Price (only when unowned & purchasable) */}
         {tile.buyPrice && !isOwned && (
           <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 8,
-            color: 'var(--text-faint)', letterSpacing: '0.02em',
+            fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 8.5,
+            color: 'var(--text-muted)', letterSpacing: '0.02em',
           }}>
             ${tile.buyPrice}
           </div>
         )}
 
-        {/* Upgrade pips when owned */}
-        {isOwned && <UpgradePips level={upgradeLevel} />}
-
-        {/* Mortgaged label */}
-        {isMortgaged && (
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
-            color: 'var(--danger)', letterSpacing: '0.08em', textTransform: 'uppercase',
-            background: 'oklch(0.68 0.22 25 / 0.12)',
-            padding: '1px 4px', borderRadius: 2,
-            border: '1px solid oklch(0.68 0.22 25 / 0.35)',
-            marginTop: 2,
-          }}>
-            Mortgaged
-          </div>
+        {/* Upgrade pips when owned — in the owner's color */}
+        {isOwned && tile.type === 'country' && ownerColorHex && (
+          <UpgradePips level={upgradeLevel} color={ownerColorHex} />
         )}
       </div>
 
@@ -260,14 +288,13 @@ export default function TileCell({
         <div style={{
           position: 'absolute',
           top: 3, right: 3,
-          width: 14, height: 14, borderRadius: '50%',
-          background: 'oklch(0.12 0.02 260 / 0.9)',
-          border: '1px solid var(--danger)',
+          width: 15, height: 15, borderRadius: '50%',
+          background: 'oklch(0.13 0.02 260 / 0.92)',
+          border: '1px solid var(--stroke-soft)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 8, zIndex: 10,
-          boxShadow: '0 0 6px var(--danger)',
+          color: 'var(--text-muted)', zIndex: 10,
         }}>
-          🔒
+          <LockIcon size={8} />
         </div>
       )}
 

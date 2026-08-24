@@ -3,25 +3,19 @@
 import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { EventLogEntry } from '@/lib/types';
+import { HomeIcon, TaxIcon, ChestIcon, BoltIcon, ChainIcon } from './icons';
 
-const TYPE_COLORS: Record<string, string> = {
-  move:   'var(--text-muted)',
-  buy:    'var(--success)',
-  rent:   'var(--neon-amber)',
-  tax:    'var(--danger)',
-  chest:  'var(--neon-cyan)',
-  event:  'var(--neon-magenta)',
-  jail:   'var(--neon-violet)',
-  system: 'var(--text-faint)',
-};
+type IconRenderer = ((p: { size?: number }) => React.JSX.Element) | null;
 
-const TYPE_BORDER: Record<string, string> = {
-  buy:   'var(--success)',
-  rent:  'var(--neon-amber)',
-  tax:   'var(--danger)',
-  chest: 'var(--neon-cyan)',
-  event: 'var(--neon-magenta)',
-  jail:  'var(--neon-violet)',
+const TYPE_META: Record<string, { color: string; Icon: IconRenderer }> = {
+  move:   { color: 'var(--text-muted)',    Icon: null },
+  buy:    { color: 'var(--success)',       Icon: HomeIcon },
+  rent:   { color: 'var(--gold)',          Icon: TaxIcon },
+  tax:    { color: 'var(--danger)',        Icon: TaxIcon },
+  chest:  { color: 'var(--neon-cyan)',     Icon: ChestIcon },
+  event:  { color: 'var(--neon-magenta)',  Icon: BoltIcon },
+  jail:   { color: 'var(--neon-violet)',   Icon: ChainIcon },
+  system: { color: 'var(--text-faint)',    Icon: null },
 };
 
 interface EventLogProps {
@@ -39,53 +33,66 @@ export default function EventLog({ entries }: EventLogProps) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{
-        padding: '12px 14px 8px',
+        padding: '13px 16px 10px',
         borderBottom: '1px solid var(--stroke-hairline)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexShrink: 0,
       }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>
-          Event log
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13.5, color: 'var(--text-primary)' }}>
+          Activity
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 6px var(--success)' }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>live</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--success)' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>live</span>
         </div>
       </div>
 
       {/* Log entries */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
         <AnimatePresence initial={false}>
           {entries.map((entry) => {
-            const borderColor = TYPE_BORDER[entry.type];
+            const meta = TYPE_META[entry.type] ?? TYPE_META.system;
+            const emphasized = entry.type !== 'move' && entry.type !== 'system';
             return (
               <motion.div
                 key={entry.id}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
+                transition={{ duration: 0.22 }}
                 style={{
                   display: 'flex',
-                  gap: 8,
-                  alignItems: 'baseline',
+                  gap: 9,
+                  alignItems: 'flex-start',
                   padding: '7px 14px',
-                  borderLeft: borderColor ? `2px solid ${borderColor}` : '2px solid transparent',
-                  background: borderColor ? `oklch(from ${borderColor} l c h / 0.05)` : 'transparent',
+                  background: emphasized ? `oklch(from ${meta.color} l c h / 0.05)` : 'transparent',
+                  borderLeft: emphasized ? `2px solid ${meta.color}` : '2px solid transparent',
                 }}
               >
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', flexShrink: 0, minWidth: 28 }}>
-                  {new Date(entry.timestamp).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                <span style={{
+                  width: 16, flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  height: 17,
+                  color: meta.color,
+                }}>
+                  {meta.Icon ? meta.Icon({ size: 11 }) : <span style={{ fontSize: 13, lineHeight: '17px' }}>·</span>}
                 </span>
                 <span style={{
                   fontFamily: 'var(--font-display)',
-                  fontSize: 11,
-                  lineHeight: 1.5,
-                  color: TYPE_COLORS[entry.type] ?? 'var(--text-secondary)',
+                  fontSize: 12.5,
+                  lineHeight: 1.45,
+                  color: emphasized ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  flex: 1,
                 }}>
                   {entry.message}
+                </span>
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)',
+                  flexShrink: 0, paddingTop: 2,
+                }}>
+                  {new Date(entry.timestamp).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })}
                 </span>
               </motion.div>
             );

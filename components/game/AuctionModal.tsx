@@ -1,308 +1,324 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import type { GameRoom, Player } from '@/lib/types';
-import { TILES, SET_COLORS } from '@/lib/game-data';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { GameRoom, Player, Tile } from '@/lib/types';
+import { SET_COLORS } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
-import { placeBid, resolveAuction } from '@/app/actions/game';
+import { placeBid, resolveAuction, foldAuction } from '@/app/actions/game';
 import FlagChip from './FlagChip';
-import { playBidPlaced, playClick } from '@/lib/sounds';
-
-const NEON: Record<string, string> = {
-  cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
-  amber: 'var(--neon-amber)', violet: 'var(--neon-violet)', rose: 'var(--neon-rose)',
-};
+import DockCard from './DockCard';
+import ErrorNote from './ErrorNote';
+import { playBidPlaced, playClick, playSkip } from '@/lib/sounds';
+import { NEON } from '@/lib/colors';
 
 interface AuctionModalProps {
   room: GameRoom;
   players: Player[];
   myPlayer: Player;
+  tiles: Tile[];
   onManageProperties?: () => void;
 }
 
-export default function AuctionModal({ room, players, myPlayer, onManageProperties }: AuctionModalProps) {
+export default function AuctionModal({ room, players, myPlayer, tiles, onManageProperties }: AuctionModalProps) {
   const pending = room.pending_action;
-  if (pending?.type !== 'auction') return null;
 
-  const tile = TILES[pending.tile_id ?? 0];
-  const setColor = tile.set ? SET_COLORS[tile.set] : 'var(--neon-cyan)';
-  const expiresAt = pending.expires_at ?? Date.now() + 25000;
-
-  const [timeLeft, setTimeLeft] = useState(Math.max(0, Math.round((expiresAt - Date.now()) / 1000)));
-  const [bidInput, setBidInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Server-synced countdown: measure remaining time against the server clock
+  // at the moment this auction state was produced, so client clock drift and
+  // network latency don't desync the timer.
+  const [remainingMs, setRemainingMs] = useState(0);
   const resolvedRef = useRef(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining <= 0 && !resolvedRef.current) {
+    if (pending?.type !== 'auction') return;
+    resolvedRef.current = false; // deadline changed (new auction or anti-snipe extension)
+    const receivedAt = Date.now();
+    const serverNow = pending.server_now ?? receivedAt;
+    const baseRemaining = Math.max(0, (pending.expires_at ?? serverNow) - serverNow);
+
+    const tick = () => {
+      const rem = Math.max(0, baseRemaining - (Date.now() - receivedAt));
+      setRemainingMs(rem);
+      if (rem <= 0 && !resolvedRef.current) {
         resolvedRef.current = true;
-        clearInterval(interval);
         resolveAuction(room.id).catch(() => {});
       }
-    }, 500);
+    };
+    tick();
+    const interval = setInterval(tick, 250);
     return () => clearInterval(interval);
-  }, [expiresAt, room.id]);
+  }, [pending?.type, pending?.expires_at, pending?.server_now, room.id]);
 
-  const currentBid = pending.current_bid ?? 0;
+  const timeLeft = Math.ceil(remainingMs / 1000);
+
+  const [bidInput, setBidInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const currentBid = pending?.type === 'auction' ? (pending.current_bid ?? 0) : 0;
+  const tile = useMemo(
+    () => tiles[pending?.type === 'auction' ? (pending.tile_id ?? 0) : 0],
+    [tiles, pending],
+  );
+
+  if (pending?.type !== 'auction' || !tile) return null;
+
+  const setColor = tile.set ? SET_COLORS[tile.set] : 'var(--set-transit)';
+  const listPrice = tile.buyPrice ?? 0;
+  const maxBid = listPrice * 2;
   const minBid = currentBid + 1;
   const parsedBid = parseInt(bidInput, 10);
-  const canBid = !isNaN(parsedBid) && parsedBid >= minBid && parsedBid <= myPlayer.balance;
+  const folded = pending.folded_ids ?? [];
+  const iAmFolded = folded.includes(myPlayer.id);
+  const iAmLeading = pending.highest_bidder_id === myPlayer.id;
+  const canParticipate = !myPlayer.is_bankrupt && !iAmFolded && timeLeft > 0;
+  const canBid = canParticipate && !isNaN(parsedBid) && parsedBid >= minBid && parsedBid <= myPlayer.balance && parsedBid <= maxBid;
   const highestBidder = players.find((p) => p.id === pending.highest_bidder_id);
 
-  async function handleBid() {
-    if (!canBid) return;
+  async function submitBid(amount: number) {
+    if (!canParticipate || loading) return;
     playClick();
     setLoading(true);
     setError(null);
-    const res = await placeBid(room.id, myPlayer.id, parsedBid);
+    const res = await placeBid(room.id, myPlayer.id, amount);
     if (!res.success) setError(res.error ?? 'Bid failed');
     else { setBidInput(''); playBidPlaced(); }
     setLoading(false);
   }
 
+  async function handleFold() {
+    if (loading || iAmFolded || iAmLeading) return;
+    playClick();
+    setLoading(true);
+    setError(null);
+    const res = await foldAuction(room.id, myPlayer.id);
+    if (!res.success) setError(res.error ?? 'Failed to withdraw');
+    else playSkip();
+    setLoading(false);
+  }
+
+  // Quick-bid options (clamped to balance and the 2× cap)
+  const quickBids = [10, 50, 100]
+    .map((step) => currentBid + step)
+    .filter((amt, i, arr) => arr.indexOf(amt) === i && amt <= myPlayer.balance && amt <= maxBid);
+  const canMatchPrice = listPrice > currentBid && listPrice <= myPlayer.balance && listPrice <= maxBid;
+
   const timerDanger = timeLeft <= 5;
   const timerWarn = timeLeft <= 10;
-  const timerColor = timerDanger ? 'var(--danger)' : timerWarn ? 'var(--neon-amber)' : 'var(--neon-cyan)';
+  const timerColor = timerDanger ? 'var(--danger)' : timerWarn ? 'var(--gold)' : 'var(--accent)';
 
   return (
-    <motion.div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 50,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
-        background: 'transparent',
-        backdropFilter: 'none',
-        WebkitBackdropFilter: 'none',
-        pointerEvents: 'none',
-      }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        style={{
-          width: '100%', maxWidth: 420,
-          background: 'var(--bg-glass-strong)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          border: `1px solid ${setColor}44`,
-          borderRadius: 'var(--r-2xl)',
-          boxShadow: `0 0 50px ${setColor}15, var(--shadow-xl)`,
-          overflow: 'hidden',
-          pointerEvents: 'auto',
-        }}
-        initial={{ scale: 0.82, y: 20 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 310, damping: 24 }}
-      >
-        {/* Set color line */}
-        <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${setColor}, transparent)` }} />
-
+    <DockCard accent={setColor} width={500}>
+      <div style={{ padding: '14px 18px 18px' }}>
         {/* Header */}
-        <div style={{
-          padding: '14px 18px',
-          borderBottom: '1px solid var(--stroke-hairline)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {tile.flag && <FlagChip code={tile.flag} size={21} style={{ boxShadow: '0 1px 4px oklch(0 0 0 / 0.4)' }} />}
-            <div>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
-                {tile.name}
-              </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                Open Auction
-              </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 13 }}>
+          {tile.flag && <FlagChip code={tile.flag} size={24} style={{ boxShadow: '0 2px 6px oklch(0 0 0 / 0.4)', flexShrink: 0 }} />}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, color: 'var(--text-primary)', lineHeight: 1.1 }}>
+              {tile.name}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: 2 }}>
+              Live auction · list {formatMoney(listPrice)} · cap {formatMoney(maxBid)}
             </div>
           </div>
 
-          {/* Timer */}
-          <motion.div
+          {/* Current bid */}
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div
+              key={currentBid}
+              className={currentBid > 0 ? 'tu-bid-pop' : undefined}
+              style={{
+                fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 24,
+                color: currentBid > 0 ? 'var(--gold)' : 'var(--text-faint)',
+                lineHeight: 1,
+              }}
+            >
+              {currentBid > 0 ? formatMoney(currentBid) : 'No bids'}
+            </div>
+            <AnimatePresence>
+              {highestBidder && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5,
+                    fontFamily: 'var(--font-display)', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 4,
+                  }}
+                >
+                  <span style={{
+                    width: 9, height: 9, borderRadius: '50%',
+                    background: NEON[highestBidder.color] ?? 'var(--neon-cyan)',
+                  }} />
+                  <strong style={{ color: 'var(--text-secondary)' }}>{highestBidder.name}</strong>
+                  {highestBidder.id === myPlayer.id ? ' (you) leads' : ' leads'}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Timer ring */}
+          <div
             style={{
-              width: 44, height: 44, borderRadius: '50%',
+              width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16,
-              background: timerDanger ? 'oklch(0.68 0.22 25 / 0.15)' : timerWarn ? 'oklch(0.82 0.17 75 / 0.1)' : 'oklch(0.82 0.17 210 / 0.1)',
-              border: `2px solid ${timerColor}`,
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 17,
+              background: `oklch(from ${timerColor} l c h / 0.10)`,
+              border: `2.5px solid ${timerColor}`,
               color: timerColor,
-              boxShadow: `0 0 16px ${timerColor}44`,
+              animation: timerDanger ? 'tu-pulse 0.6s infinite ease-in-out' : undefined,
             }}
-            animate={timerDanger ? { scale: [1, 1.1, 1] } : {}}
-            transition={{ repeat: Infinity, duration: 0.6 }}
           >
             {timeLeft}
-          </motion.div>
+          </div>
         </div>
 
-        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Bid info */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>List Price</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14, color: 'var(--text-secondary)' }}>{formatMoney(tile.buyPrice ?? 0)}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Current Bid</div>
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 22,
-                color: currentBid > 0 ? 'var(--success)' : 'var(--text-faint)',
-                textShadow: currentBid > 0 ? '0 0 10px oklch(0.78 0.18 150 / 0.4)' : 'none',
-              }}>
-                {currentBid > 0 ? formatMoney(currentBid) : 'No bids'}
-              </div>
-            </div>
-          </div>
-
-          {/* Highest bidder */}
-          <AnimatePresence>
-            {highestBidder && (
-              <motion.div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '8px 12px', borderRadius: 'var(--r-md)',
-                  background: 'oklch(0.78 0.18 150 / 0.06)',
-                  border: '1px solid oklch(0.78 0.18 150 / 0.2)',
-                }}
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div style={{
-                  width: 20, height: 20, borderRadius: '50%',
-                  background: NEON[highestBidder.color] ?? 'var(--neon-cyan)',
-                  boxShadow: `0 0 6px ${NEON[highestBidder.color] ?? 'var(--neon-cyan)'}`,
-                  flexShrink: 0,
-                }} />
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--success)' }}>
-                  <strong>{highestBidder.name}</strong> is leading
-                  {highestBidder.id === myPlayer.id && (
-                    <span style={{ color: 'var(--text-faint)', marginLeft: 4 }}>(you)</span>
-                  )}
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Advantage */}
-          {tile.advantage && (
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 11, color: 'var(--neon-amber)', letterSpacing: '0.01em' }}>
-              ✦ {tile.advantage}
-            </div>
-          )}
-
-          {/* Active players */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {players.filter((p) => !p.is_bankrupt).map((p) => (
+        {/* Participants */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 11 }}>
+          {players.filter((p) => !p.is_bankrupt).map((p) => {
+            const hasFolded = folded.includes(p.id);
+            const leading = p.id === pending.highest_bidder_id;
+            return (
               <div
                 key={p.id}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '3px 8px', borderRadius: 'var(--r-pill)',
-                  background: 'var(--bg-raised)',
-                  border: `1px solid ${p.id === pending.highest_bidder_id ? 'oklch(0.78 0.18 150 / 0.4)' : 'var(--stroke-hairline)'}`,
-                  fontFamily: 'var(--font-mono)', fontSize: 10,
-                  color: p.id === pending.highest_bidder_id ? 'var(--success)' : 'var(--text-faint)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '4px 10px', borderRadius: 'var(--r-pill)',
+                  background: leading ? 'var(--gold-soft)' : 'var(--bg-raised)',
+                  border: `1px solid ${leading ? 'oklch(0.84 0.115 88 / 0.4)' : 'var(--stroke-hairline)'}`,
+                  fontFamily: 'var(--font-mono)', fontSize: 11,
+                  color: leading ? 'var(--gold)' : hasFolded ? 'var(--text-faint)' : 'var(--text-secondary)',
+                  opacity: hasFolded ? 0.5 : 1,
+                  textDecoration: hasFolded ? 'line-through' : 'none',
                 }}
               >
                 <div style={{
-                  width: 6, height: 6, borderRadius: '50%',
+                  width: 7, height: 7, borderRadius: '50%',
                   background: NEON[p.color] ?? 'var(--neon-cyan)',
                   flexShrink: 0,
                 }} />
-                {p.name}{p.id === myPlayer.id ? ' (you)' : ''}
+                {p.name}{p.id === myPlayer.id ? ' (you)' : ''}{hasFolded ? ' · out' : ''}
               </div>
-            ))}
-          </div>
-
-          {/* Balance hint */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
-            <div>
-              Your balance: <span style={{ color: 'var(--neon-cyan)' }}>{formatMoney(myPlayer.balance)}</span>
-              <span style={{ color: 'var(--stroke-strong)', margin: '0 6px' }}>·</span>
-              Min bid: <span style={{ color: 'var(--text-primary)' }}>{formatMoney(minBid)}</span>
-            </div>
-            {onManageProperties && (
-              <button
-                onClick={onManageProperties}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '3px 8px', borderRadius: 'var(--r-sm)',
-                  background: 'oklch(0.82 0.17 75 / 0.12)',
-                  border: '1px solid oklch(0.82 0.17 75 / 0.3)',
-                  color: 'var(--neon-amber)',
-                  cursor: 'pointer',
-                  fontSize: 9,
-                  fontWeight: 600,
-                  transition: 'all var(--dur-fast) var(--ease-out)',
-                }}
-              >
-                <span>💼</span> Raise Cash
-              </button>
-            )}
-          </div>
-
-          {error && (
-            <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)',
-              background: 'oklch(0.68 0.22 25 / 0.08)', border: '1px solid oklch(0.68 0.22 25 / 0.2)',
-              borderRadius: 'var(--r-sm)', padding: '6px 10px',
-            }}>
-              {error}
-            </div>
+            );
+          })}
+          <div style={{ flex: 1 }} />
+          {onManageProperties && (
+            <button
+              onClick={onManageProperties}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px', borderRadius: 'var(--r-pill)',
+                background: 'var(--gold-soft)',
+                border: '1px solid oklch(0.84 0.115 88 / 0.3)',
+                color: 'var(--gold)',
+                fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600,
+              }}
+            >
+              Raise cash
+            </button>
           )}
+        </div>
 
-          {/* Bid input */}
-          {timeLeft > 0 ? (
+        {error && <ErrorNote style={{ marginBottom: 10 }}>{error}</ErrorNote>}
+
+        {/* Bidding controls */}
+        {timeLeft <= 0 ? (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-muted)', textAlign: 'center', letterSpacing: '0.06em', padding: '6px 0' }}>
+            Resolving auction…
+          </div>
+        ) : iAmFolded ? (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-faint)', textAlign: 'center',
+            letterSpacing: '0.05em', padding: '8px 0',
+          }}>
+            You withdrew — waiting for the hammer…
+          </div>
+        ) : (
+          <>
+            {/* Quick bid chips */}
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 9 }}>
+              {quickBids.map((amt) => (
+                <button
+                  key={amt}
+                  disabled={loading}
+                  onClick={() => submitBid(amt)}
+                  className="tu-btn"
+                  style={{
+                    padding: '7px 14px', fontSize: 12.5,
+                    fontFamily: 'var(--font-mono)', fontWeight: 700,
+                    background: `${setColor}14`,
+                    borderColor: `${setColor}50`,
+                    borderRadius: 'var(--r-pill)',
+                  }}
+                >
+                  +{amt - currentBid} → {formatMoney(amt)}
+                </button>
+              ))}
+              {canMatchPrice && (
+                <button
+                  disabled={loading}
+                  onClick={() => submitBid(listPrice)}
+                  className="tu-btn"
+                  style={{
+                    padding: '7px 14px', fontSize: 12.5,
+                    fontFamily: 'var(--font-mono)', fontWeight: 700,
+                    background: 'var(--gold-soft)',
+                    borderColor: 'oklch(0.84 0.115 88 / 0.4)',
+                    color: 'var(--gold)',
+                    borderRadius: 'var(--r-pill)',
+                  }}
+                >
+                  List {formatMoney(listPrice)}
+                </button>
+              )}
+            </div>
+
+            {/* Custom bid input + withdraw */}
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 type="number"
                 value={bidInput}
                 onChange={(e) => setBidInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && canBid && handleBid()}
-                placeholder={`Min $${minBid}`}
+                onKeyDown={(e) => e.key === 'Enter' && canBid && submitBid(parsedBid)}
+                placeholder={`Custom · min $${minBid}`}
                 min={minBid}
-                max={myPlayer.balance}
+                max={Math.min(myPlayer.balance, maxBid)}
                 style={{
-                  flex: 1, padding: '10px 12px',
-                  background: 'var(--bg-raised)',
+                  flex: 1, padding: '11px 14px',
+                  background: 'var(--bg-input)',
                   border: `1px solid ${canBid ? setColor + '88' : 'var(--stroke-soft)'}`,
                   borderRadius: 'var(--r-md)',
-                  fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--text-primary)',
                   outline: 'none',
                   caretColor: setColor,
                 }}
               />
-              <motion.button
+              <button
                 disabled={!canBid || loading}
-                onClick={handleBid}
-                style={{
-                  padding: '10px 18px',
-                  borderRadius: 'var(--r-md)',
-                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13,
-                  background: canBid ? `linear-gradient(180deg, ${setColor} 0%, oklch(from ${setColor} calc(l * 0.8) c h) 100%)` : 'var(--bg-raised)',
-                  color: canBid ? 'oklch(0.12 0.02 260)' : 'var(--text-faint)',
-                  border: canBid ? 'none' : '1px solid var(--stroke-soft)',
-                  cursor: !canBid || loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.6 : 1,
-                }}
-                whileHover={canBid ? { scale: 1.02 } : {}}
-                whileTap={canBid ? { scale: 0.97 } : {}}
+                onClick={() => submitBid(parsedBid)}
+                className="tu-btn tu-btn-primary"
+                style={{ padding: '11px 22px', fontSize: 14 }}
               >
                 {loading ? '…' : 'Bid'}
-              </motion.button>
+              </button>
+              {!iAmLeading && (
+                <button
+                  disabled={loading}
+                  onClick={handleFold}
+                  title="Withdraw from this auction"
+                  className="tu-btn tu-btn-ghost"
+                  style={{ padding: '11px 16px', fontSize: 13, color: 'var(--text-muted)' }}
+                >
+                  Pass
+                </button>
+              )}
             </div>
-          ) : (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', textAlign: 'center', letterSpacing: '0.06em' }}>
-              Resolving auction…
+
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', marginTop: 8, textAlign: 'center' }}>
+              Your balance {formatMoney(myPlayer.balance)} · bids in the final 8s extend the clock
             </div>
-          )}
-        </div>
-      </motion.div>
-    </motion.div>
+          </>
+        )}
+      </div>
+    </DockCard>
   );
 }

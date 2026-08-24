@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import type { GameRoom, Player, Property } from './types';
+import { boardFor } from './game-data';
 
 interface GameStore {
   room: GameRoom | null;
@@ -10,6 +11,7 @@ interface GameStore {
   myPlayerId: string | null;
   lastDiceRoll: [number, number] | null;
   diceAnimating: boolean;
+  boardSize: number;
 
   pendingPlayerUpdate: Player | null;
   walkingPlayerId: string | null;
@@ -18,6 +20,7 @@ interface GameStore {
   setRoom: (room: GameRoom) => void;
   setPlayers: (players: Player[]) => void;
   upsertPlayer: (player: Player) => void;
+  removePlayer: (playerId: string) => void;
   setProperties: (properties: Property[]) => void;
   upsertProperty: (property: Property) => void;
   setMyPlayerId: (id: string) => void;
@@ -27,6 +30,12 @@ interface GameStore {
   startWalking: () => void;
 }
 
+// 'roll' and the transient server-side 'rolling' lock both count as the
+// pre-result phase for animation detection.
+function isRollPhase(phase: string | undefined): boolean {
+  return phase === 'roll' || phase === 'rolling';
+}
+
 export const useGameStore = create<GameStore>((set, get) => ({
   room: null,
   players: [],
@@ -34,6 +43,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   myPlayerId: null,
   lastDiceRoll: null,
   diceAnimating: false,
+  boardSize: 40,
 
   pendingPlayerUpdate: null,
   walkingPlayerId: null,
@@ -41,13 +51,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setRoom: (room) => {
     const prev = get().room;
-    // A new roll occurs when the game is playing and the turn phase transitions OUT of 'roll'
+    const boardSize = boardFor(room).size;
+    // A new roll occurs when the game is playing and the turn phase transitions OUT of 'roll'/'rolling'
     const isNewRoll = !!(
       room.status === 'playing' &&
       room.dice_roll &&
       prev?.status === 'playing' &&
-      prev.turn_phase === 'roll' &&
-      room.turn_phase !== 'roll'
+      isRollPhase(prev.turn_phase) &&
+      !isRollPhase(room.turn_phase)
     );
     // A turn change happens when the active player index advances (different player)
     const isTurnChange = !!(
@@ -55,13 +66,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
       prev?.status === 'playing' &&
       room.current_player_idx !== prev?.current_player_idx
     );
-    set({ room });
+    set({ room, boardSize });
     if (isNewRoll) {
       // Find the player rolling and calculate their exact target position based on the dice roll
       const sortedPrev = get().players.slice().sort((a, b) => a.turn_order - b.turn_order);
       const cpPrev = sortedPrev[prev?.current_player_idx ?? 0];
       const totalRoll = room.dice_roll ? ((room.dice_roll[0] as number) + (room.dice_roll[1] as number)) : 0;
-      const targetPos = cpPrev ? (cpPrev.position + totalRoll) % 40 : null;
+      const targetPos = cpPrev ? (cpPrev.position + totalRoll) % boardSize : null;
       const walkingId = cpPrev?.id ?? null;
 
       // Start the dice roll animation
@@ -94,12 +105,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const idx = s.players.findIndex((p) => p.id === player.id);
       if (idx === -1) return { players: [...s.players, player] };
       const existing = s.players[idx];
+      const boardSize = s.boardSize || 40;
 
       // If a roll/walk is active or pending, we must NOT let the player's position
       // instantly jump in the store. Instead, we save the update as pending, and update
       // other player stats (like balance) while keeping their visual position at the old position.
       const isPositionChange = existing.position !== player.position;
-      const isRollActiveOrPending = s.diceAnimating || s.walkingPlayerId !== null || (s.room?.status === 'playing' && s.room.turn_phase === 'roll');
+      const isRollActiveOrPending =
+        s.diceAnimating ||
+        s.walkingPlayerId !== null ||
+        (s.room?.status === 'playing' && isRollPhase(s.room.turn_phase));
 
       if (isPositionChange && isRollActiveOrPending) {
         const updatedWithOldPosition = { ...player, position: existing.position };
@@ -107,16 +122,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         updated[idx] = updatedWithOldPosition;
 
         // Calculate steps and target pos based on the new position (as backup)
-        const steps = (player.position - existing.position + 40) % 40;
-        const targetPos = (existing.position + steps) % 40;
+        const steps = (player.position - existing.position + boardSize) % boardSize;
+        const targetPos = (existing.position + steps) % boardSize;
 
-        setTimeout(() => get().stopDiceSpin(), 1000);
-        setTimeout(() => get().startWalking(), 1800);
+        const isAlreadyAnimating = s.diceAnimating || s.walkingPlayerId !== null;
+        if (!isAlreadyAnimating) {
+          setTimeout(() => get().stopDiceSpin(), 1000);
+          setTimeout(() => get().startWalking(), 1800);
+        }
 
         return {
           players: updated,
           pendingPlayerUpdate: player,
-          diceAnimating: true,
+          diceAnimating: isAlreadyAnimating ? s.diceAnimating : true,
           walkingPlayerId: player.id,
           walkingTargetPosition: s.walkingTargetPosition ?? targetPos,
         };
@@ -126,6 +144,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       updated[idx] = player;
       return { players: updated };
     }),
+
+  removePlayer: (playerId) =>
+    set((s) => ({ players: s.players.filter((p) => p.id !== playerId) })),
 
   setProperties: (properties) => set({ properties }),
 
@@ -143,7 +164,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   triggerDiceRoll: (roll) => {
     const sortedPrev = get().players.slice().sort((a, b) => a.turn_order - b.turn_order);
     const cpPrev = get().room ? sortedPrev[get().room!.current_player_idx] : null;
-    const targetPos = cpPrev ? (cpPrev.position + roll[0] + roll[1]) % 40 : null;
+    const boardSize = get().boardSize || 40;
+    const targetPos = cpPrev ? (cpPrev.position + roll[0] + roll[1]) % boardSize : null;
 
     set({
       lastDiceRoll: roll,
@@ -203,7 +225,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
 
       // Move player visually exactly 1 tile forward along the perimeter
-      const nextPos = (player.position + 1) % 40;
+      const nextPos = (player.position + 1) % (state.boardSize || 40);
       const updatedPlayers = [...state.players];
       updatedPlayers[pIdx] = { ...player, position: nextPos };
 
@@ -241,7 +263,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
 export function selectCurrentPlayer(store: GameStore): Player | null {
   if (!store.room) return null;
-  return store.players[store.room.current_player_idx] ?? null;
+  const sorted = store.players.slice().sort((a, b) => a.turn_order - b.turn_order);
+  return sorted[store.room.current_player_idx] ?? null;
 }
 
 export function selectMyPlayer(store: GameStore): Player | null {
@@ -251,6 +274,5 @@ export function selectMyPlayer(store: GameStore): Player | null {
 
 export function selectIsMyTurn(store: GameStore): boolean {
   if (!store.room || !store.myPlayerId) return false;
-  const current = store.players[store.room.current_player_idx];
-  return current?.id === store.myPlayerId;
+  return selectCurrentPlayer(store)?.id === store.myPlayerId;
 }

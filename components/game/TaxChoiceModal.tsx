@@ -1,10 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import type { GameRoom, Player } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
 import { chooseTax } from '@/app/actions/game';
+import DockCard from './DockCard';
+import { TaxIcon } from './icons';
+import ErrorNote from './ErrorNote';
+import { playClick } from '@/lib/sounds';
 
 interface TaxChoiceModalProps {
   room: GameRoom;
@@ -23,6 +26,7 @@ export default function TaxChoiceModal({ room, myPlayer }: TaxChoiceModalProps) 
   const flatBetter   = flatTax <= netWorthTax;
 
   async function handleChoose(choice: 'flat' | 'percent') {
+    playClick();
     setLoading(true);
     setError(null);
     const res = await chooseTax(room.id, myPlayer.id, choice);
@@ -30,135 +34,89 @@ export default function TaxChoiceModal({ room, myPlayer }: TaxChoiceModalProps) 
     setLoading(false);
   }
 
-  return (
-    <motion.div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 50,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
-        background: 'transparent',
-        backdropFilter: 'none',
-        WebkitBackdropFilter: 'none',
-        pointerEvents: 'none',
-      }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
-      <motion.div
+  function Option({ amount, label, better, onPick }: { amount: number; label: string; better: boolean; onPick: () => void }) {
+    return (
+      <button
+        disabled={loading}
+        onClick={onPick}
         style={{
-          width: '100%', maxWidth: 360,
-          background: 'var(--bg-glass-strong)',
-          border: '1px solid var(--stroke-soft)',
-          borderRadius: 'var(--r-2xl)',
-          overflow: 'hidden',
-          pointerEvents: 'auto',
+          flex: 1,
+          padding: '15px 16px',
+          borderRadius: 'var(--r-lg)',
+          background: better ? 'var(--success-soft)' : 'oklch(1 0 0 / 0.03)',
+          border: `1px solid ${better ? 'oklch(0.78 0.13 155 / 0.45)' : 'var(--stroke-soft)'}`,
+          cursor: loading ? 'not-allowed' : 'pointer',
+          opacity: loading ? 0.5 : 1,
+          textAlign: 'left',
+          transition: 'transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast)',
         }}
-        initial={{ scale: 0.94, y: 12 }}
-        animate={{ scale: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 340, damping: 26 }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)'; }}
       >
-        {/* Header */}
-        <div style={{
-          padding: '18px 20px 14px',
-          borderBottom: '1px solid var(--stroke-hairline)',
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 'var(--r-md)',
-            background: 'oklch(0.68 0.22 25 / 0.15)',
-            border: '1px solid oklch(0.68 0.22 25 / 0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, flexShrink: 0,
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 22,
+            color: better ? 'var(--success)' : 'var(--text-primary)',
           }}>
-            🏛️
-          </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
-              Income Tax
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>
-              Choose your payment method
-            </div>
-          </div>
-        </div>
-
-        {/* Options */}
-        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {error && (
-            <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)',
-              background: 'oklch(0.68 0.22 25 / 0.08)', border: '1px solid oklch(0.68 0.22 25 / 0.2)',
-              borderRadius: 'var(--r-sm)', padding: '6px 10px',
+            {formatMoney(amount)}
+          </span>
+          {better && (
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700,
+              padding: '3px 8px', borderRadius: 'var(--r-pill)',
+              background: 'oklch(0.78 0.13 155 / 0.18)', color: 'var(--success)',
+              letterSpacing: '0.1em',
             }}>
-              {error}
-            </div>
+              CHEAPER
+            </span>
           )}
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+          {label}
+        </div>
+      </button>
+    );
+  }
 
-          {/* Flat $200 option */}
-          <button
-            disabled={loading}
-            onClick={() => handleChoose('flat')}
-            style={{
-              padding: '14px 16px',
-              borderRadius: 'var(--r-lg)',
-              background: flatBetter ? 'oklch(0.78 0.18 150 / 0.08)' : 'var(--bg-raised)',
-              border: `1px solid ${flatBetter ? 'oklch(0.78 0.18 150 / 0.35)' : 'var(--stroke-soft)'}`,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1,
-              textAlign: 'left',
-              transition: 'all var(--dur-fast) var(--ease-out)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20, color: flatBetter ? 'var(--success)' : 'var(--text-primary)' }}>
-                {formatMoney(flatTax)}
-              </span>
-              {flatBetter && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, padding: '2px 6px', borderRadius: 'var(--r-pill)', background: 'oklch(0.78 0.18 150 / 0.15)', color: 'var(--success)', letterSpacing: '0.08em' }}>
-                  BETTER
-                </span>
-              )}
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
-              Flat rate
-            </div>
-          </button>
-
-          {/* 10% net worth option */}
-          <button
-            disabled={loading}
-            onClick={() => handleChoose('percent')}
-            style={{
-              padding: '14px 16px',
-              borderRadius: 'var(--r-lg)',
-              background: !flatBetter ? 'oklch(0.78 0.18 150 / 0.08)' : 'var(--bg-raised)',
-              border: `1px solid ${!flatBetter ? 'oklch(0.78 0.18 150 / 0.35)' : 'var(--stroke-soft)'}`,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1,
-              textAlign: 'left',
-              transition: 'all var(--dur-fast) var(--ease-out)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20, color: !flatBetter ? 'var(--success)' : 'var(--text-primary)' }}>
-                {formatMoney(netWorthTax)}
-              </span>
-              {!flatBetter && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, padding: '2px 6px', borderRadius: 'var(--r-pill)', background: 'oklch(0.78 0.18 150 / 0.15)', color: 'var(--success)', letterSpacing: '0.08em' }}>
-                  BETTER
-                </span>
-              )}
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>
-              10% of net worth
-            </div>
-          </button>
-
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.5 }}>
-            Net worth = cash + properties + upgrades − mortgage debt
+  return (
+    <DockCard accent="var(--danger)" width={460}>
+      {/* Header */}
+      <div style={{
+        padding: '13px 18px 12px',
+        borderBottom: '1px solid var(--stroke-hairline)',
+        display: 'flex', alignItems: 'center', gap: 11,
+      }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 'var(--r-md)',
+          background: 'var(--danger-soft)',
+          border: '1px solid oklch(0.71 0.155 25 / 0.35)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--danger)', flexShrink: 0,
+        }}>
+          <TaxIcon size={17} />
+        </div>
+        <div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+            Income Tax
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', marginTop: 1 }}>
+            Pick how you want to pay
           </div>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+
+      <div style={{ padding: '14px 18px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {error && <ErrorNote>{error}</ErrorNote>}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Option amount={flatTax} label="Flat rate" better={flatBetter} onPick={() => handleChoose('flat')} />
+          <Option amount={netWorthTax} label="10% of net worth" better={!flatBetter} onPick={() => handleChoose('percent')} />
+        </div>
+
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.5 }}>
+          Net worth = cash + properties + upgrades − mortgage debt
+        </div>
+      </div>
+    </DockCard>
   );
 }

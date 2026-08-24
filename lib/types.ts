@@ -18,7 +18,10 @@ export type CountrySet =
   | 'red'
   | 'yellow'
   | 'green'
-  | 'dark-blue';
+  | 'dark-blue'
+  // Mega board exclusive sets
+  | 'teal'
+  | 'steel';
 
 export interface Tile {
   id: number;
@@ -36,7 +39,29 @@ export interface Tile {
   flag?: string;
 }
 
-export type PlayerColor = 'cyan' | 'magenta' | 'lime' | 'amber' | 'violet' | 'rose';
+export type PlayerColor =
+  | 'cyan' | 'magenta' | 'lime' | 'amber' | 'violet' | 'rose'
+  | 'orange' | 'sky';
+
+// ── Game settings (configured by the host in the lobby) ─────────────────────
+
+export type BoardId = 'classic' | 'mega';
+
+export interface GameSettings {
+  board: BoardId;              // classic = 40 tiles / 6 players · mega = 48 tiles / 8 players
+  maxPlayers: number;          // 2–8 (classic caps at 6)
+  startingCash: number;        // 500–2500
+  goSalary: number;            // 0–400, collected when passing GO
+  doubleRentOnFullSet: boolean;// x2 base rent on completed, unimproved sets
+  auctionsEnabled: boolean;    // declined properties go to auction
+  mortgageEnabled: boolean;    // allow mortgaging properties
+  evenBuild: boolean;          // enforce even building / demolition across a set
+  vacationCash: boolean;       // taxes & fines pool on Free Parking; landing collects
+  setAdvantages: boolean;      // unique monopoly perks per color set
+  auctionSeconds: number;      // 15 | 25 | 40
+  jailFine: number;            // 50 | 75 | 100
+  randomizeOrder: boolean;     // shuffle turn order at game start
+}
 
 export interface Player {
   id: string;
@@ -63,7 +88,8 @@ export interface Property {
 }
 
 export type RoomStatus = 'lobby' | 'playing' | 'finished';
-export type TurnPhase = 'roll' | 'action' | 'end';
+// 'rolling' is a transient server-side lock that prevents double rolls
+export type TurnPhase = 'roll' | 'rolling' | 'action' | 'end';
 
 export interface EventLogEntry {
   id: string;
@@ -97,6 +123,8 @@ export interface PendingAction {
   highest_bidder_id?: string | null;
   highest_bidder_name?: string | null;
   expires_at?: number;
+  server_now?: number;        // server clock when auction state last changed (drift sync)
+  folded_ids?: string[];      // players who withdrew from the auction
   // Income tax choice (spec §4.5)
   net_worth_tax?: number;
   flat_tax?: number;
@@ -123,6 +151,9 @@ export interface GameRoom {
   // Phase 3 — added via migration 001_phase3.sql
   doubles_turn?: boolean;
   doubles_streak?: number;
+  // Added via migration 003_settings.sql
+  settings?: Partial<GameSettings> | null;
+  vacation_pot?: number;
   created_at: string;
   updated_at: string;
 }

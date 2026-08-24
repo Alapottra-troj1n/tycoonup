@@ -1,5 +1,5 @@
-import { TILES, SET_COLORS, PLAYER_COLOR_MAP, SET_ADVANTAGES, SET_SIZES } from './game-data';
-import type { Property, Player } from './types';
+import { SET_COLORS, PLAYER_COLOR_MAP, SET_ADVANTAGES, SET_SIZES } from './game-data';
+import type { Property, Player, Tile } from './types';
 
 export function getPropertyByTileId(properties: Property[], tileId: number): Property | undefined {
   return properties.find((p) => p.tile_id === tileId);
@@ -14,11 +14,12 @@ export function getPlayersOnTile(players: Player[], tileId: number): Player[] {
 }
 
 export function getSetOwnerCount(
+  tiles: Tile[],
   properties: Property[],
   set: string,
   playerId: string,
 ): number {
-  const setTileIds = TILES
+  const setTileIds = tiles
     .filter((t) => t.set === set)
     .map((t) => t.id);
   return setTileIds.filter((id) =>
@@ -28,11 +29,12 @@ export function getSetOwnerCount(
 
 /** Returns true when the player owns every city in the set. */
 export function ownsFullSet(
+  tiles: Tile[],
   properties: Property[],
   set: string,
   playerId: string,
 ): boolean {
-  const setTiles = TILES.filter((t) => t.set === set);
+  const setTiles = tiles.filter((t) => t.set === set);
   return setTiles.every((t) =>
     properties.find((p) => p.tile_id === t.id && p.owner_id === playerId),
   );
@@ -43,22 +45,24 @@ export function ownsFullSet(
  * otherwise null.
  */
 export function getSetAdvantage(
+  tiles: Tile[],
   properties: Property[],
   set: string,
   playerId: string,
 ): string | null {
-  if (!set || !ownsFullSet(properties, set, playerId)) return null;
+  if (!set || !ownsFullSet(tiles, properties, set, playerId)) return null;
   return SET_ADVANTAGES[set] ?? null;
 }
 
 /** How many cities in the set does the player own vs total needed. */
 export function getSetProgress(
+  tiles: Tile[],
   properties: Property[],
   set: string,
   playerId: string,
 ): { owned: number; total: number } {
-  const total = SET_SIZES[set] ?? TILES.filter((t) => t.set === set).length;
-  const owned = getSetOwnerCount(properties, set, playerId);
+  const total = SET_SIZES[set] ?? tiles.filter((t) => t.set === set).length;
+  const owned = getSetOwnerCount(tiles, properties, set, playerId);
   return { owned, total };
 }
 
@@ -66,8 +70,8 @@ export function formatMoney(amount: number): string {
   return `$${amount.toLocaleString()}`;
 }
 
-export function getTileColor(tileId: number): string {
-  const tile = TILES[tileId];
+export function getTileColor(tiles: Tile[], tileId: number): string {
+  const tile = tiles[tileId];
   if (tile?.set) return SET_COLORS[tile.set] ?? '#555';
   return '#334155';
 }

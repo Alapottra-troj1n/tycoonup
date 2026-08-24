@@ -6,7 +6,8 @@
       "Bash(unzip -o TycoonUP-handoff.zip -d /tmp/tycoon-handoff)",
       "Bash(npx tsc *)",
       "Bash(npm install *)",
-      "Bash(npx next *)"
+      "Bash(npx next *)",
+      "Bash(xargs wc -l)"
     ]
   }
 }

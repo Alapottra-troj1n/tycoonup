@@ -11,28 +11,7 @@ interface PlayerMascotProps {
   total?: number;
 }
 
-const NEON_GLOWS: Record<string, string> = {
-  cyan: 'rgba(34, 211, 238, 0.45)',
-  magenta: 'rgba(236, 72, 153, 0.45)',
-  lime: 'rgba(132, 204, 22, 0.45)',
-  amber: 'rgba(245, 158, 11, 0.45)',
-  violet: 'rgba(168, 85, 247, 0.45)',
-  rose: 'rgba(244, 63, 94, 0.45)',
-};
-
 export default function PlayerMascot({ player, size = 26, index = 0, total = 1 }: PlayerMascotProps) {
-  // Stagger the floating animation based on player ID or index so all mascots don't bob in perfect sync
-  const staggerDelay = useMemo(() => {
-    if (!player.id) return index * 0.2;
-    let sum = 0;
-    for (let i = 0; i < player.name.length; i++) {
-      sum += player.name.charCodeAt(i);
-    }
-    return (sum % 10) * 0.25;
-  }, [player.id, player.name, index]);
-
-  const glowColor = NEON_GLOWS[player.color] ?? NEON_GLOWS.cyan;
-
   // Determine overlaps and styling for multiple players occupying the same tile
   // If there are multiple players, we offset them slightly
   const offsetStyle = useMemo(() => {
@@ -52,7 +31,7 @@ export default function PlayerMascot({ player, size = 26, index = 0, total = 1 }
         width: size,
         height: size,
         borderRadius: '50%',
-        boxShadow: `0 3px 8px rgba(0, 0, 0, 0.5), 0 0 10px ${glowColor}`,
+        boxShadow: '0 3px 8px rgba(0, 0, 0, 0.5)',
         border: '1.5px solid oklch(1 0 0 / 0.85)',
         display: 'flex',
         alignItems: 'center',
@@ -65,7 +44,7 @@ export default function PlayerMascot({ player, size = 26, index = 0, total = 1 }
       }}
       whileHover={{
         scale: 1.15,
-        boxShadow: `0 4px 12px rgba(0,0,0,0.6), 0 0 16px ${glowColor}`,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
         transition: { duration: 0.15 },
       }}
       layoutId={`mascot-${player.id}`} // framer-motion magic: automatically animate position moves!
@@ -295,6 +274,79 @@ export function renderMascotSVG(color: string) {
           <path d="M 13.5 18 C 13.5 18 14.5 21 16 21 C 17.5 21 18.5 18 18.5 18 Z" fill="#9f1239" />
           {/* Cute upper lip line */}
           <path d="M 13.5 18 Q 15 19 16 18 Q 17 19 18.5 18" stroke="#4c0519" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+        </svg>
+      );
+
+    case 'orange':
+      return (
+        // Adorable Orange Fox
+        <svg viewBox="0 0 32 32" className="w-full h-full" fill="none">
+          <defs>
+            <linearGradient id="m-grad-orange" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="oklch(0.82 0.15 55)" />
+              <stop offset="100%" stopColor="oklch(0.58 0.16 50)" />
+            </linearGradient>
+          </defs>
+          <circle cx="16" cy="16" r="15" fill="url(#m-grad-orange)" />
+
+          {/* Pointy fox ears */}
+          <path d="M 6 11 L 4 3 L 12 7 Z" fill="url(#m-grad-orange)" stroke="#431407" strokeWidth="0.6" />
+          <path d="M 7 9.5 L 6 5 L 10.5 7.5 Z" fill="#fff7ed" />
+          <path d="M 26 11 L 28 3 L 20 7 Z" fill="url(#m-grad-orange)" stroke="#431407" strokeWidth="0.6" />
+          <path d="M 25 9.5 L 26 5 L 21.5 7.5 Z" fill="#fff7ed" />
+
+          {/* White muzzle patch */}
+          <ellipse cx="16" cy="20" rx="6.5" ry="5" fill="#fff7ed" />
+
+          {/* Sly happy eyes */}
+          <path d="M 8.5 14 Q 11 12 13 14.5" stroke="#431407" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M 23.5 14 Q 21 12 19 14.5" stroke="#431407" strokeWidth="1.6" strokeLinecap="round" />
+
+          {/* Nose + smile */}
+          <ellipse cx="16" cy="18.4" rx="1.4" ry="1" fill="#431407" />
+          <path d="M 13.5 20.5 Q 16 22.5 18.5 20.5" stroke="#431407" strokeWidth="1.4" strokeLinecap="round" />
+
+          {/* Blush */}
+          <ellipse cx="8.5" cy="18" rx="1.7" ry="0.9" fill="#ea580c" opacity="0.45" />
+          <ellipse cx="23.5" cy="18" rx="1.7" ry="0.9" fill="#ea580c" opacity="0.45" />
+        </svg>
+      );
+
+    case 'sky':
+      return (
+        // Adorable Sky-Blue Penguin
+        <svg viewBox="0 0 32 32" className="w-full h-full" fill="none">
+          <defs>
+            <linearGradient id="m-grad-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="oklch(0.80 0.10 245)" />
+              <stop offset="100%" stopColor="oklch(0.52 0.13 250)" />
+            </linearGradient>
+          </defs>
+          <circle cx="16" cy="16" r="15" fill="url(#m-grad-sky)" />
+
+          {/* White belly face patch */}
+          <ellipse cx="16" cy="18.5" rx="8.5" ry="9" fill="#f0f9ff" />
+
+          {/* Round glossy eyes */}
+          <circle cx="11.5" cy="13.5" r="2.7" fill="#0c1a3a" />
+          <circle cx="20.5" cy="13.5" r="2.7" fill="#0c1a3a" />
+          <circle cx="10.7" cy="12.6" r="0.9" fill="#ffffff" />
+          <circle cx="19.7" cy="12.6" r="0.9" fill="#ffffff" />
+          <circle cx="12.4" cy="14.4" r="0.4" fill="#ffffff" />
+          <circle cx="21.4" cy="14.4" r="0.4" fill="#ffffff" />
+
+          {/* Beak */}
+          <path d="M 14 17 L 18 17 L 16 19.6 Z" fill="#f59e0b" stroke="#b45309" strokeWidth="0.5" />
+
+          {/* Happy smile under beak */}
+          <path d="M 13 20.8 Q 16 22.6 19 20.8" stroke="#0c1a3a" strokeWidth="1.3" strokeLinecap="round" />
+
+          {/* Blush */}
+          <ellipse cx="9" cy="17.5" rx="1.7" ry="0.9" fill="#60a5fa" opacity="0.55" />
+          <ellipse cx="23" cy="17.5" rx="1.7" ry="0.9" fill="#60a5fa" opacity="0.55" />
+
+          {/* Little hair tuft */}
+          <path d="M 14.5 3.5 Q 16 1.5 17.5 3.5" stroke="#0c1a3a" strokeWidth="1.2" strokeLinecap="round" />
         </svg>
       );
 

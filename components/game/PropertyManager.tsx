@@ -2,17 +2,21 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { GameRoom, Player, Property } from '@/lib/types';
-import { TILES, SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
-import { formatMoney, ownsFullSet, getSetOwnerCount } from '@/lib/utils';
+import type { GameRoom, Player, Property, Tile } from '@/lib/types';
+import { SET_COLORS, SET_ADVANTAGES, SET_SIZES } from '@/lib/game-data';
+import { formatMoney, getSetOwnerCount } from '@/lib/utils';
 import { upgradeProperty, downgradeProperty, mortgageProperty, unmortgageProperty } from '@/app/actions/game';
 import FlagChip from './FlagChip';
+import { CloseButton } from './icons';
+import ErrorNote from './ErrorNote';
+import SetBonusPanel from './SetBonusPanel';
 
 interface PropertyManagerProps {
   room: GameRoom;
   player: Player;
   properties: Property[];
   allPlayers: Player[];
+  tiles: Tile[];
   onClose: () => void;
 }
 
@@ -27,8 +31,8 @@ function PropActionBtn({
   color?: string;
   variant?: 'default' | 'danger' | 'success';
 }) {
-  const bg = variant === 'success' ? 'oklch(0.78 0.18 150 / 0.08)' : variant === 'danger' ? 'oklch(0.82 0.17 75 / 0.08)' : color ? `${color}18` : 'var(--bg-raised)';
-  const borderColor = variant === 'success' ? 'oklch(0.78 0.18 150 / 0.25)' : variant === 'danger' ? 'oklch(0.82 0.17 75 / 0.25)' : color ? `${color}40` : 'var(--stroke-soft)';
+  const bg = variant === 'success' ? 'oklch(0.78 0.13 155 / 0.08)' : variant === 'danger' ? 'oklch(0.82 0.11 85 / 0.08)' : color ? `${color}18` : 'var(--bg-raised)';
+  const borderColor = variant === 'success' ? 'oklch(0.78 0.13 155 / 0.25)' : variant === 'danger' ? 'oklch(0.82 0.11 85 / 0.25)' : color ? `${color}40` : 'var(--stroke-soft)';
   const textColor = variant === 'success' ? 'var(--success)' : variant === 'danger' ? 'var(--neon-amber)' : color ?? 'var(--text-secondary)';
   return (
     <button
@@ -50,7 +54,8 @@ function PropActionBtn({
   );
 }
 
-export default function PropertyManager({ room, player, properties, allPlayers, onClose }: PropertyManagerProps) {
+export default function PropertyManager({ room, player, properties, allPlayers, tiles, onClose }: PropertyManagerProps) {
+  const TILES = tiles;
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -126,8 +131,8 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>My Properties</span>
               {!isMyTurn && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, padding: '2px 6px', borderRadius: 'var(--r-pill)', background: 'oklch(0.68 0.22 25 / 0.12)', color: 'var(--danger)', letterSpacing: '0.06em', fontWeight: 600 }}>
-                  ⚠️ NOT YOUR TURN
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, padding: '2px 6px', borderRadius: 'var(--r-pill)', background: 'var(--danger-soft)', color: 'var(--danger)', letterSpacing: '0.06em', fontWeight: 600 }}>
+                  NOT YOUR TURN
                 </span>
               )}
             </div>
@@ -135,28 +140,13 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
               {myProperties.length} owned · {formatMoney(player.balance)} balance
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              width: 30, height: 30,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
-              borderRadius: 'var(--r-sm)', color: 'var(--text-faint)',
-              cursor: 'pointer', fontSize: 13, fontWeight: 700,
-            }}
-          >
-            ✕
-          </button>
+          <CloseButton onClick={onClose} size={30} />
         </div>
 
         {error && (
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)',
-            background: 'oklch(0.68 0.22 25 / 0.08)', borderBottom: '1px solid oklch(0.68 0.22 25 / 0.2)',
-            padding: '7px 18px', flexShrink: 0,
-          }}>
+          <ErrorNote style={{ fontSize: 10, borderRadius: 0, border: 'none', borderBottom: '1px solid oklch(0.71 0.155 25 / 0.25)', padding: '7px 18px', flexShrink: 0 }}>
             {error}
-          </div>
+          </ErrorNote>
         )}
 
         {/* Properties list */}
@@ -178,7 +168,7 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
               <div key={groupKey}>
                 {/* Group header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 2, background: setColor, boxShadow: `0 0 6px ${setColor}88`, flexShrink: 0 }} />
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: setColor, flexShrink: 0 }} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.1em', textTransform: 'uppercase', flex: 1 }}>
                     {groupLabel}
                   </span>
@@ -198,7 +188,7 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                         border: `1px solid ${isComplete ? `${setColor}50` : 'var(--stroke-hairline)'}`,
                         letterSpacing: '0.05em',
                       }}>
-                        {isComplete ? '⭐ MONOPOLY' : `${ownedCount}/${setSize}`}
+                        {isComplete ? 'MONOPOLY' : `${ownedCount}/${setSize}`}
                       </span>
                     );
                   })()}
@@ -209,37 +199,15 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                   if (!setKey) return null;
                   const adv = SET_ADVANTAGES[setKey];
                   if (!adv) return null;
-                  const setSize = SET_SIZES[setKey] ?? 2;
-                  const ownedCount = props.length;
-                  const isComplete = ownedCount >= setSize;
+                  const isComplete = props.length >= (SET_SIZES[setKey] ?? 2);
                   return (
-                    <div style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 7,
-                      padding: '6px 10px', borderRadius: 'var(--r-sm)',
-                      background: isComplete ? `${setColor}10` : 'oklch(1 0 0 / 0.02)',
-                      border: `1px solid ${isComplete ? `${setColor}30` : 'var(--stroke-hairline)'}`,
-                      marginBottom: 8,
-                      opacity: isComplete ? 1 : 0.55,
-                      transition: 'opacity 0.3s, background 0.3s',
-                    }}>
-                      {isComplete ? (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={setColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                        </svg>
-                      ) : (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                        </svg>
-                      )}
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 7.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: isComplete ? setColor : 'var(--text-faint)', marginBottom: 2 }}>
-                          {isComplete ? 'Bonus Active' : 'Monopoly Bonus (locked)'}
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 10, color: isComplete ? 'var(--text-secondary)' : 'var(--text-faint)', lineHeight: 1.4 }}>
-                          {adv}
-                        </div>
-                      </div>
-                    </div>
+                    <SetBonusPanel
+                      setColor={setColor}
+                      active={isComplete}
+                      description={adv}
+                      compact
+                      style={{ marginBottom: 8 }}
+                    />
                   );
                 })()}
 
@@ -251,7 +219,7 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                     const unmortgageCost = tile.mortgageValue ? Math.ceil(tile.mortgageValue * 1.1) : 0;
 
                     // Monopoly set & Even Building / Even Demolition validations (matching TileDetailModal)
-                    const mySetOwned = tile.set ? getSetOwnerCount(properties, tile.set, player.id) : 0;
+                    const mySetOwned = tile.set ? getSetOwnerCount(TILES, properties, tile.set, player.id) : 0;
                     const setTotal = tile.set ? (SET_SIZES[tile.set] ?? 2) : 0;
                     const hasMonopoly = tile.set && mySetOwned >= setTotal;
 
@@ -286,7 +254,7 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
                               <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>{tile.name}</span>
                               {prop.is_mortgaged && (
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, padding: '1px 5px', borderRadius: 'var(--r-pill)', background: 'oklch(0.82 0.17 75 / 0.12)', color: 'var(--neon-amber)', letterSpacing: '0.06em' }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, padding: '1px 5px', borderRadius: 'var(--r-pill)', background: 'var(--gold-soft)', color: 'var(--neon-amber)', letterSpacing: '0.06em' }}>
                                   MORTGAGED
                                 </span>
                               )}
@@ -306,7 +274,6 @@ export default function PropertyManager({ room, player, properties, allPlayers, 
                                     style={{
                                       width: 7, height: 7, borderRadius: '50%',
                                       background: i < prop.upgrade_level ? setColor : 'oklch(1 0 0 / 0.08)',
-                                      boxShadow: i < prop.upgrade_level ? `0 0 4px ${setColor}` : 'none',
                                     }}
                                   />
                                 ))}

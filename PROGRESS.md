@@ -83,6 +83,7 @@ Real-time multiplayer Monopoly-style board game (country tiles, dark neon UI, Su
 1. `supabase/schema.sql` — initial tables + RLS + Realtime
 2. `supabase/migrations/001_phase3.sql` — adds `doubles_turn`, `doubles_streak` to `game_rooms`
 3. `supabase/migrations/002_add_bot.sql` — adds `is_bot` to `players`
+4. `supabase/migrations/003_settings.sql` — adds `settings` JSONB + `vacation_pot` to `game_rooms` (Phase 5)
 
 ### Environment variables needed (`env.local`):
 ```
@@ -134,22 +135,60 @@ supabase/
   migrations/
     001_phase3.sql            doubles_turn + doubles_streak columns
     002_add_bot.sql           is_bot column on players
+    003_settings.sql          settings JSONB + vacation_pot columns  ⚠️ REQUIRED for Phase 5
 ```
 
 ---
 
-## Key Constants (`lib/game-data.ts`)
-- `STARTING_BALANCE = 1500`
-- `GO_SALARY = 200`
-- `JAIL_FINE = 50`
-- `MAX_PLAYERS = 6`
-- Upgrade levels: `rentLevels[upgradeLevel]` (0 = base rent, 1/2/3 = upgraded)
+### Phase 5 — "Batteries Included" Overhaul ✅ COMPLETE (2026-06-12)
+
+**⚠️ Run `supabase/migrations/003_settings.sql` in the Supabase SQL editor before using.**
+(Without it, rooms still work with default rules; changing settings will show a friendly
+error telling you to run the migration.)
+
+**Custom game settings (host-configurable in the lobby, richup.io-style):**
+- Board choice: **Classic World** (40 tiles, 11×11, 2–6 players) or **Mega World** (48 tiles, 13×13, 2–8 players, adds Australia/teal + Germany/steel sets)
+- Max players (2–8), starting cash ($500–$2500), GO salary ($0–$400)
+- Toggles: x2 rent on full sets, auctions, mortgages, even-build rule, vacation cash (Free Parking pot), monopoly perks, randomize turn order
+- Auction timer (15/25/40s), jail fine ($50/$75/$100)
+- Settings live in `game_rooms.settings` JSONB; `lib/settings.ts` normalizes/validates
+- Host can **kick players/bots** in the lobby; **copy invite link** button
+- 2 new player colors (orange fox 🦊, sky penguin 🐧 mascots) — 8 total
+
+**Engine rework (`app/actions/game.ts`):**
+- Board-agnostic: all logic reads tiles/jail/positions from `BOARDS[settings.board]`
+- Data-driven monopoly perks (`SET_PERKS` in game-data) — no more hardcoded tile IDs
+- **Atomic roll claim** (transient `turn_phase: 'rolling'`) kills the double-roll race
+- **Unified bankruptcy**: any unpaid obligation (rent/tax/chest/event/forced bail) triggers it; assets transfer to creditor or bank; **turn auto-advances** (fixes the softlock where a bankrupt player could never click End Turn); win condition checked on every bankruptcy
+- Server-side validation on buy/skip/chest/tax (must match the pending action + player)
+- Vacation cash pot: taxes, fines, chest penalties accumulate in `vacation_pot`; landing on Free Parking collects
+- Trades can be proposed by **any player at any time** (claims the pending slot atomically; a dice roll expires an unanswered trade)
+
+**Auction overhaul:**
+- Quick-bid chips (+$10/+$50/+$100/match list price), custom bid, **Pass (fold)** button
+- Auto-settles early when everyone but the leader folds
+- **Anti-snipe**: bids in the last 8s extend the clock
+- Server-clock-synced countdown (`server_now` in pending_action) — no more timer drift
+- Bots bid up to ~70% of list price, then fold
+
+**UI polish:**
+- TurnAnnouncer overlay actually renders now (was dead code)
+- Tile ownership flash animation on purchase/auction/trade wins
+- Vacation pot chip in the top bar; bid pop animation; dynamic board scaling for 13×13
+- Realtime DELETE handling (kicked players disappear live)
+- Shared player-color map in `lib/colors.ts` (was duplicated in 8 components)
+
+---
+
+## Key Constants
+- Defaults live in `lib/settings.ts` (`DEFAULT_SETTINGS`) — per-room overrides in `game_rooms.settings`
+- Boards + tiles + monopoly perks in `lib/game-data.ts` (`BOARDS`, `SET_PERKS`)
+- Upgrade levels: `rentLevels[upgradeLevel]` (0 = base rent, 1–4 = upgraded)
 
 ---
 
 ## Pending / Future Work
 - [ ] Design system unification (user building in Claude Design — will provide tokens/colors)
-- [ ] Trade system between players
-- [ ] Remaining country-specific passive advantages (currently 4 implemented)
 - [ ] Mobile/responsive layout improvements
-- [ ] Sound effects
+- [ ] Spectator mode / reconnect grace for dropped players
+- [ ] Game presets ("Quick game", "Marathon") on the create screen

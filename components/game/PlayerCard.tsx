@@ -1,108 +1,167 @@
 'use client';
 
-import type { Player, Property } from '@/lib/types';
-import { TILES } from '@/lib/game-data';
+import type { Player, Property, Tile } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
-
-const NEON: Record<string, string> = {
-  cyan:    'var(--neon-cyan)',
-  magenta: 'var(--neon-magenta)',
-  lime:    'var(--neon-lime)',
-  amber:   'var(--neon-amber)',
-  violet:  'var(--neon-violet)',
-  rose:    'var(--neon-rose)',
-};
-
-function PlayerToken({ color, size = 32 }: { color: string; size?: number }) {
-  const c = NEON[color] || 'var(--neon-cyan)';
-  const id = `pc-token-${color}`;
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" style={{ flexShrink: 0 }}>
-      <defs>
-        <radialGradient id={id} cx="0.35" cy="0.3" r="0.9">
-          <stop offset="0" stopColor="white" stopOpacity="0.6" />
-          <stop offset="0.35" stopColor={c} stopOpacity="1" />
-          <stop offset="1" stopColor={c} stopOpacity="0.85" />
-        </radialGradient>
-      </defs>
-      <circle cx="20" cy="20" r="14" fill={`url(#${id})`} stroke="oklch(0 0 0 / 0.3)" strokeWidth="0.5" />
-      <ellipse cx="15.5" cy="18" rx="1.3" ry="1.7" fill="oklch(0.1 0.02 260)" />
-      <ellipse cx="24.5" cy="18" rx="1.3" ry="1.7" fill="oklch(0.1 0.02 260)" />
-      <path d="M15.5 23 Q20 25.5 24.5 23" stroke="oklch(0.1 0.02 260)" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
-      <ellipse cx="14.5" cy="14.5" rx="2" ry="1.3" fill="white" opacity="0.5" />
-    </svg>
-  );
-}
+import { NEON } from '@/lib/colors';
+import { SET_COLORS } from '@/lib/game-data';
+import { renderMascotSVG } from './PlayerMascot';
+import { ChainIcon } from './icons';
 
 interface PlayerCardProps {
   player: Player;
   properties: Property[];
+  tiles: Tile[];
   isCurrentTurn: boolean;
   isMe: boolean;
+  compact?: boolean; // horizontal strip variant (mobile)
 }
 
-export default function PlayerCard({ player, properties, isCurrentTurn, isMe }: PlayerCardProps) {
+function Tag({ children, color }: { children: React.ReactNode; color: string }) {
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 600,
+      color, letterSpacing: '0.05em', textTransform: 'uppercase',
+      flexShrink: 0,
+    }}>
+      {children}
+    </span>
+  );
+}
+
+export default function PlayerCard({ player, properties, tiles, isCurrentTurn, isMe, compact = false }: PlayerCardProps) {
   const neon = NEON[player.color] || 'var(--neon-cyan)';
   const owned = properties.filter((p) => p.owner_id === player.id);
-  const currentTile = TILES[player.position];
+
+  // Portfolio dots: one per owned property, colored by its set
+  const portfolio = owned
+    .map((p) => {
+      const t = tiles[p.tile_id];
+      const color = t?.set ? SET_COLORS[t.set] :
+        t?.type === 'transport' ? 'var(--set-transit)' :
+        t?.type === 'utility' ? 'var(--set-utility)' : 'var(--text-faint)';
+      return { id: p.id, color, mortgaged: p.is_mortgaged };
+    })
+    .slice(0, 14);
+
+  if (compact) {
+    // Mobile horizontal chip
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '7px 11px',
+        background: isCurrentTurn ? `oklch(from ${neon} l c h / 0.10)` : 'var(--bg-glass-strong)',
+        border: `1px solid ${isCurrentTurn ? neon : 'var(--stroke-soft)'}`,
+        boxShadow: isCurrentTurn ? `0 0 0 1px ${neon}` : 'none',
+        borderRadius: 'var(--r-pill)',
+        flexShrink: 0,
+        opacity: player.is_bankrupt ? 0.4 : 1,
+        transition: 'all var(--dur-med) var(--ease-out)',
+      }}>
+        <div style={{
+          width: 26, height: 26, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+          border: `1.5px solid ${neon}`,
+          boxShadow: isCurrentTurn ? `0 0 8px ${neon}` : 'none',
+        }}>
+          {renderMascotSVG(player.color)}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)', whiteSpace: 'nowrap', maxWidth: 84, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {player.name}
+          </span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11.5, color: 'var(--gold)' }}>
+            {player.is_bankrupt ? 'bust' : formatMoney(player.balance)}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '9px 11px',
-        background: isCurrentTurn ? 'oklch(1 0 0 / 0.04)' : 'transparent',
-        border: isCurrentTurn
-          ? `1px solid ${neon}`
-          : '1px solid var(--stroke-hairline)',
+        gap: 11,
+        padding: '11px 12px',
+        background: isCurrentTurn
+          ? `linear-gradient(135deg, oklch(from ${neon} l c h / 0.13) 0%, oklch(from ${neon} l c h / 0.02) 100%)`
+          : 'oklch(1 0 0 / 0.015)',
+        border: `1px solid ${isCurrentTurn ? neon : 'var(--stroke-hairline)'}`,
         borderRadius: 'var(--r-lg)',
         position: 'relative',
-        boxShadow: isCurrentTurn ? `0 0 20px oklch(from ${neon} l c h / 0.25)` : 'none',
-        opacity: player.is_bankrupt ? 0.35 : 1,
+        boxShadow: isCurrentTurn ? `0 0 0 1px ${neon}, 0 0 22px oklch(from ${neon} l c h / 0.16)` : 'none',
+        opacity: player.is_bankrupt ? 0.4 : 1,
         transition: 'all var(--dur-med) var(--ease-out)',
       }}
     >
-      {/* Active indicator bar */}
-      {isCurrentTurn && (
-        <div style={{
-          position: 'absolute',
-          left: -1, top: 11, bottom: 11, width: 3,
-          background: neon,
-          borderRadius: 2,
-          boxShadow: `0 0 10px ${neon}`,
-        }}/>
-      )}
-
-      <PlayerToken color={player.color} size={30} />
+      {/* Mascot avatar */}
+      <div style={{
+        width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+        border: `2px solid ${isCurrentTurn ? neon : 'oklch(1 0 0 / 0.15)'}`,
+        boxShadow: isCurrentTurn ? `0 0 10px ${neon}66` : '0 2px 6px oklch(0 0 0 / 0.3)',
+        transition: 'all var(--dur-med)',
+      }}>
+        {renderMascotSVG(player.color)}
+      </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {/* Name row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 13.5,
+            color: 'var(--text-primary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
             {player.name}
           </span>
-          {isMe && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--text-faint)', letterSpacing: '0.06em' }}>you</span>
-          )}
-          {player.is_bot && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--neon-violet)', letterSpacing: '0.04em' }}>bot</span>
-          )}
-          {player.is_bankrupt && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, color: 'var(--danger)', letterSpacing: '0.04em' }}>bust</span>
+          {isMe && <Tag color="var(--text-faint)">you</Tag>}
+          {player.is_bot && <Tag color="var(--neon-violet)">bot</Tag>}
+          {player.is_bankrupt && <Tag color="var(--danger)">bust</Tag>}
+          {isCurrentTurn && !player.is_bankrupt && (
+            <span style={{
+              marginLeft: 'auto',
+              width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+              background: neon,
+            }} />
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
+
+        {/* Cash row */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginTop: 3 }}>
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 14.5,
+            color: 'var(--gold)', letterSpacing: '-0.01em',
+          }}>
             {formatMoney(player.balance)}
           </span>
           {player.in_jail && !player.is_bankrupt && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--neon-amber)', letterSpacing: '0.04em' }}>prison</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--neon-violet)', letterSpacing: '0.04em', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <ChainIcon size={9} /> jail
+            </span>
+          )}
+          {(player.goojf_cards ?? 0) > 0 && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }} title="Get Out of Jail Free cards">
+              GOOJF ×{player.goojf_cards}
+            </span>
           )}
         </div>
-        {owned.length > 0 && (
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', marginTop: 2, letterSpacing: '0.02em' }}>
-            {owned.length} {owned.length === 1 ? 'property' : 'properties'}
+
+        {/* Portfolio dots */}
+        {portfolio.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 6, flexWrap: 'wrap' }}>
+            {portfolio.map((d) => (
+              <span key={d.id} style={{
+                width: 7, height: 7, borderRadius: 2,
+                background: d.color,
+                opacity: d.mortgaged ? 0.3 : 0.95,
+                boxShadow: 'inset 0 0 0 0.5px oklch(0 0 0 / 0.3)',
+              }} />
+            ))}
+            {owned.length > 14 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>
+                +{owned.length - 14}
+              </span>
+            )}
           </div>
         )}
       </div>

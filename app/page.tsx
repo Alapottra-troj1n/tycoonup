@@ -8,66 +8,9 @@ import type { PlayerColor } from '@/lib/types';
 import { ALL_PLAYER_COLORS } from '@/lib/game-data';
 import { createRoom, joinRoom } from '@/app/actions/game';
 import { playClick, playHover, startAmbient } from '@/lib/sounds';
+import { NEON as NEON_COLORS } from '@/lib/colors';
 
-const PRESET_NAMES = ['Atlas', 'Nexus', 'Vega', 'Orion', 'Nova', 'Apex'];
-
-const NEON_COLORS: Record<string, string> = {
-  cyan:    'var(--neon-cyan)',
-  magenta: 'var(--neon-magenta)',
-  lime:    'var(--neon-lime)',
-  amber:   'var(--neon-amber)',
-  violet:  'var(--neon-violet)',
-  rose:    'var(--neon-rose)',
-};
-
-const FLOAT_ICONS = ['💰', '🏦', '✈️', '🌍', '🚀', '💎', '🏴‍☠️', '🎲', '💵', '🌐', '🏙️', '⚡'];
-
-function FloatingIcons() {
-  const [items, setItems] = useState<Array<{ id: number; icon: string; x: number; delay: number; duration: number; size: number; opacity: number }>>([]);
-
-  useEffect(() => {
-    const generated = Array.from({ length: 22 }, (_, i) => ({
-      id: i,
-      icon: FLOAT_ICONS[i % FLOAT_ICONS.length],
-      x: Math.random() * 100,
-      delay: Math.random() * 12,
-      duration: 12 + Math.random() * 16,
-      size: 16 + Math.random() * 24,
-      opacity: 0.06 + Math.random() * 0.10,
-    }));
-    setItems(generated);
-  }, []);
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0,
-    }}>
-      {items.map((item) => (
-        <motion.span
-          key={item.id}
-          style={{
-            position: 'absolute',
-            left: `${item.x}%`,
-            bottom: '-60px',
-            fontSize: item.size,
-            opacity: item.opacity,
-            userSelect: 'none',
-            filter: 'blur(0.4px)',
-          }}
-          animate={{ y: [0, -(window?.innerHeight ?? 900) - 100] }}
-          transition={{
-            duration: item.duration,
-            delay: item.delay,
-            repeat: Infinity,
-            ease: 'linear',
-          }}
-        >
-          {item.icon}
-        </motion.span>
-      ))}
-    </div>
-  );
-}
+const PRESET_NAMES = ['Atlas', 'Nexus', 'Vega', 'Orion', 'Nova', 'Apex', 'Lyra', 'Cosmo'];
 
 function PlayerToken({ color, size = 36 }: { color: string; size?: number }) {
   const c = NEON_COLORS[color] || 'var(--neon-cyan)';
@@ -243,7 +186,6 @@ function HomeContent() {
 
   return (
     <div className="tu-backdrop" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: '48px 16px', position: 'relative' }}>
-      <FloatingIcons />
       {/* Logo + headline */}
       <motion.div
         style={{ marginBottom: 48, textAlign: 'center', position: 'relative', zIndex: 1 }}
@@ -342,7 +284,7 @@ function HomeContent() {
             </motion.button>
 
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', textAlign: 'center', marginTop: 6, letterSpacing: '0.06em' }}>
-              Up to 6 players · Bots available
+              Up to 8 players · Custom rules · Two boards · Bots
             </p>
           </motion.div>
         )}
@@ -383,7 +325,7 @@ function HomeContent() {
               <AnimatePresence>
                 {error && (
                   <motion.div
-                    style={{ background: 'oklch(0.68 0.22 25 / 0.12)', border: '1px solid oklch(0.68 0.22 25 / 0.35)', borderRadius: 'var(--r-md)', padding: '10px 12px', marginBottom: 16, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)' }}
+                    style={{ background: 'var(--danger-soft)', border: '1px solid oklch(0.71 0.155 25 / 0.35)', borderRadius: 'var(--r-md)', padding: '10px 12px', marginBottom: 16, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)' }}
                     initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                   >
                     {error}

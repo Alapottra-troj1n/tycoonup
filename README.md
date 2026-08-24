@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TycoonUP
 
-## Getting Started
+A real-time multiplayer Monopoly-style board game — a richup.io alternative with all the batteries included. Built with Next.js 16, Supabase Realtime, Zustand, and Framer Motion.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **No accounts** — create a room, share a 6-letter code or invite link, play
+- **2 boards**: Classic World (40 tiles, up to 6 players) and Mega World (48 tiles, 10 country sets, up to 8 players)
+- **Custom rules** (host picks in the lobby): starting cash, GO salary, x2 rent on full sets, auctions on/off + timer, mortgages, even-build rule, vacation cash pot, monopoly perks, jail fine, turn order shuffle
+- **Live auctions** with quick-bid chips, fold/pass, anti-snipe clock extension, server-synced timer
+- **Trading anytime** between any two players (properties + cash)
+- **Bots** that buy, answer quizzes, bid in auctions, and take their turns
+- **Monopoly perks** — each completed country set unlocks a unique passive bonus
+- Procedurally synthesized sound design, animated board, win screen with leaderboard
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Create a [Supabase](https://supabase.com) project.
+2. In the Supabase SQL editor, run in order:
+   - `supabase/schema.sql`
+   - `supabase/migrations/001_phase3.sql`
+   - `supabase/migrations/002_add_bot.sql`
+   - `supabase/migrations/003_settings.sql`
+3. Create `.env.local`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=...
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+   ```
 
-## Learn More
+4. Install and run:
 
-To learn more about Next.js, take a look at the following resources:
+   ```bash
+   npm install
+   npm run dev
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000), create a game, and share the invite link.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Architecture
 
-## Deploy on Vercel
+- All game logic is server-authoritative in `app/actions/game.ts` (Next.js Server Actions).
+- Supabase Postgres is the source of truth; Supabase Realtime broadcasts changes to all clients.
+- `lib/store.ts` (Zustand) mirrors state client-side and decouples dice/walk animations from network updates.
+- Board definitions and monopoly perks are data-driven in `lib/game-data.ts`; per-room rules in `lib/settings.ts`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `PROGRESS.md` for the full build history and file map.

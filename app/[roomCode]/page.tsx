@@ -46,18 +46,18 @@ export default async function RoomPage({ params }: RoomPageProps) {
 
   if (!supabaseReady) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center px-4"
-        style={{ background: '#060912' }}
-      >
-        <div
-          className="text-center p-8 rounded-2xl max-w-md"
-          style={{ background: 'rgba(255,50,50,0.06)', border: '1px solid rgba(255,50,50,0.2)' }}
-        >
-          <p className="text-red-400 text-xl font-bold mb-2">Supabase not configured</p>
-          <p className="text-slate-500 text-sm">
-            Add your Supabase credentials to <code className="text-cyan-400">.env.local</code> and
-            run the schema from <code className="text-cyan-400">supabase/schema.sql</code>.
+      <div className="tu-backdrop" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px' }}>
+        <div style={{
+          textAlign: 'center', padding: 32, maxWidth: 420,
+          background: 'var(--danger-soft)', border: '1px solid oklch(0.71 0.155 25 / 0.25)',
+          borderRadius: 'var(--r-xl)',
+        }}>
+          <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--danger)', margin: '0 0 8px' }}>
+            Supabase not configured
+          </p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
+            Add your Supabase credentials to <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>.env.local</code> and
+            run the schema from <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>supabase/schema.sql</code>.
           </p>
         </div>
       </div>

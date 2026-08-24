@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { ChestQuestion, GameRoom } from '@/lib/types';
 import { answerChestQuestion } from '@/app/actions/game';
+import DockCard from './DockCard';
+import { ChestIcon } from './icons';
 
 interface ChestModalProps {
   room: GameRoom;
@@ -52,177 +54,147 @@ export default function ChestModal({ room, playerId, question, isActivePlayer }:
   const timerDanger = timeLeft <= 5;
 
   return (
-    <AnimatePresence>
-      <motion.div
-        style={{
-          position: 'fixed', inset: 0, zIndex: 50,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: 16,
-          background: 'transparent',
-          backdropFilter: 'none',
-          WebkitBackdropFilter: 'none',
-          pointerEvents: 'none',
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <motion.div
-          style={{
-            width: '100%', maxWidth: 440,
-            background: 'var(--bg-glass-strong)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid oklch(0.82 0.17 210 / 0.35)',
-            borderRadius: 'var(--r-2xl)',
-            boxShadow: 'var(--glow-cyan), var(--shadow-xl)',
-            overflow: 'hidden',
-            pointerEvents: 'auto',
-          }}
-          initial={{ scale: 0.75, y: 24 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 22 }}
-        >
-          {/* Header */}
+    <DockCard accent="var(--neon-cyan)" width={480}>
+      {/* Header */}
+      <div style={{
+        padding: '13px 18px 12px',
+        borderBottom: '1px solid var(--stroke-hairline)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
           <div style={{
-            padding: '14px 18px',
-            borderBottom: '1px solid var(--stroke-hairline)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            width: 38, height: 38, borderRadius: 'var(--r-md)',
+            background: 'oklch(0.80 0.10 200 / 0.12)',
+            border: '1px solid oklch(0.80 0.10 200 / 0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--neon-cyan)', flexShrink: 0,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 'var(--r-md)',
-                background: 'oklch(0.82 0.17 210 / 0.12)',
-                border: '1px solid oklch(0.82 0.17 210 / 0.25)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18,
-              }}>
-                📦
-              </div>
-              <div>
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--neon-cyan)' }}>
-                  World Chest
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)', letterSpacing: '0.06em' }}>
-                  Answer correctly to earn a reward
-                </div>
-              </div>
+            <ChestIcon size={18} />
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14.5, color: 'var(--neon-cyan)' }}>
+              World Chest
             </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', letterSpacing: '0.04em', marginTop: 1 }}>
+              Answer correctly to win <span style={{ color: 'var(--gold)' }}>${question.reward}</span> · miss and lose ${question.penalty}
+            </div>
+          </div>
+        </div>
 
-            {isActivePlayer && !revealed && (
-              <motion.div
+        {isActivePlayer && !revealed && (
+          <div
+            style={{
+              width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 15,
+              background: timerDanger ? 'var(--danger-soft)' : 'oklch(0.80 0.10 200 / 0.1)',
+              border: `2.5px solid ${timerDanger ? 'var(--danger)' : 'var(--neon-cyan)'}`,
+              color: timerDanger ? 'var(--danger)' : 'var(--neon-cyan)',
+              animation: timerDanger ? 'tu-pulse 0.6s infinite ease-in-out' : undefined,
+            }}
+          >
+            {timeLeft}
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: '15px 18px 18px' }}>
+        {/* Question */}
+        <div style={{
+          fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 16,
+          color: 'var(--text-primary)', lineHeight: 1.45,
+          marginBottom: 14,
+        }}>
+          {question.question}
+        </div>
+
+        {/* Options — 2×2 grid for fast scanning */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {question.options.map((opt, i) => {
+            let bg = 'oklch(1 0 0 / 0.03)';
+            let border = '1px solid var(--stroke-soft)';
+            let color = 'var(--text-secondary)';
+
+            if (revealed) {
+              if (i === question.correctIndex) {
+                bg = 'var(--success-soft)';
+                border = '1px solid oklch(0.78 0.13 155 / 0.5)';
+                color = 'var(--success)';
+              } else if (i === selected && i !== question.correctIndex) {
+                bg = 'var(--danger-soft)';
+                border = '1px solid oklch(0.71 0.155 25 / 0.4)';
+                color = 'var(--danger)';
+              }
+            }
+
+            return (
+              <motion.button
+                key={i}
+                disabled={!isActivePlayer || revealed || loading}
+                onClick={() => handleAnswer(i)}
                 style={{
-                  width: 36, height: 36, borderRadius: '50%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14,
-                  background: timerDanger ? 'oklch(0.68 0.22 25 / 0.15)' : 'oklch(0.82 0.17 210 / 0.12)',
-                  border: `2px solid ${timerDanger ? 'var(--danger)' : 'var(--neon-cyan)'}`,
-                  color: timerDanger ? 'var(--danger)' : 'var(--neon-cyan)',
-                  boxShadow: timerDanger ? '0 0 12px oklch(0.68 0.22 25 / 0.4)' : '0 0 8px oklch(0.82 0.17 210 / 0.3)',
+                  width: '100%', textAlign: 'left',
+                  padding: '11px 14px',
+                  borderRadius: 'var(--r-md)',
+                  fontFamily: 'var(--font-display)', fontSize: 13.5, fontWeight: 500,
+                  background: bg, border, color,
+                  cursor: !isActivePlayer || revealed || loading ? 'default' : 'pointer',
+                  transition: 'all var(--dur-fast) var(--ease-out)',
+                  display: 'flex', alignItems: 'center', gap: 9,
                 }}
-                animate={timerDanger ? { scale: [1, 1.08, 1] } : {}}
-                transition={{ repeat: Infinity, duration: 0.6 }}
+                whileHover={!revealed && isActivePlayer ? { scale: 1.015, y: -1 } : {}}
+                whileTap={!revealed && isActivePlayer ? { scale: 0.99 } : {}}
               >
-                {timeLeft}
-              </motion.div>
-            )}
-          </div>
-
-          <div style={{ padding: '18px 18px' }}>
-            {/* Question */}
-            <div style={{
-              fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15,
-              color: 'var(--text-primary)', lineHeight: 1.5,
-              marginBottom: 16,
-            }}>
-              {question.question}
-            </div>
-
-            {/* Options */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {question.options.map((opt, i) => {
-                let bg = 'oklch(1 0 0 / 0.03)';
-                let border = '1px solid var(--stroke-hairline)';
-                let color = 'var(--text-secondary)';
-
-                if (revealed) {
-                  if (i === question.correctIndex) {
-                    bg = 'oklch(0.78 0.18 150 / 0.1)';
-                    border = '1px solid oklch(0.78 0.18 150 / 0.4)';
-                    color = 'var(--success)';
-                  } else if (i === selected && i !== question.correctIndex) {
-                    bg = 'oklch(0.68 0.22 25 / 0.1)';
-                    border = '1px solid oklch(0.68 0.22 25 / 0.3)';
-                    color = 'var(--danger)';
-                  }
-                }
-
-                return (
-                  <motion.button
-                    key={i}
-                    disabled={!isActivePlayer || revealed || loading}
-                    onClick={() => handleAnswer(i)}
-                    style={{
-                      width: '100%', textAlign: 'left',
-                      padding: '10px 14px',
-                      borderRadius: 'var(--r-md)',
-                      fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 500,
-                      background: bg, border, color,
-                      cursor: !isActivePlayer || revealed || loading ? 'default' : 'pointer',
-                      transition: 'all var(--dur-fast) var(--ease-out)',
-                    }}
-                    whileHover={!revealed && isActivePlayer ? { scale: 1.01, x: 2 } : {}}
-                    whileTap={!revealed && isActivePlayer ? { scale: 0.99 } : {}}
-                  >
-                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 11, color: 'var(--text-faint)', marginRight: 10 }}>
-                      {String.fromCharCode(65 + i)}.
-                    </span>
-                    {opt}
-                  </motion.button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Result */}
-          {result && (
-            <motion.div
-              style={{ padding: '0 18px 18px' }}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              <div style={{
-                padding: '12px 16px', borderRadius: 'var(--r-lg)', textAlign: 'center',
-                background: result.correct ? 'oklch(0.78 0.18 150 / 0.08)' : 'oklch(0.68 0.22 25 / 0.08)',
-                border: `1px solid ${result.correct ? 'oklch(0.78 0.18 150 / 0.25)' : 'oklch(0.68 0.22 25 / 0.25)'}`,
-              }}>
-                <div style={{
-                  fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16,
-                  color: result.correct ? 'var(--success)' : 'var(--danger)',
+                <span style={{
+                  fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 11,
+                  width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'oklch(1 0 0 / 0.06)', color: 'var(--text-muted)',
                 }}>
-                  {result.correct ? '✓ Correct!' : '✗ Wrong!'}
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
-                  {result.correct ? `+$${result.amount}` : `-$${result.amount}`}
-                </div>
-              </div>
-            </motion.div>
-          )}
+                  {String.fromCharCode(65 + i)}
+                </span>
+                {opt}
+              </motion.button>
+            );
+          })}
+        </div>
 
-          {!isActivePlayer && !revealed && (
-            <div style={{ padding: '0 18px 18px' }}>
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)',
-                textAlign: 'center', letterSpacing: '0.06em',
+        {/* Result */}
+        {result && (
+          <motion.div
+            style={{ marginTop: 12 }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+          >
+            <div style={{
+              padding: '11px 16px', borderRadius: 'var(--r-md)', textAlign: 'center',
+              background: result.correct ? 'var(--success-soft)' : 'var(--danger-soft)',
+              border: `1px solid ${result.correct ? 'oklch(0.78 0.13 155 / 0.35)' : 'oklch(0.71 0.155 25 / 0.3)'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            }}>
+              <span style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15.5,
+                color: result.correct ? 'var(--success)' : 'var(--danger)',
               }}>
-                Waiting for active player to answer…
-              </div>
+                {result.correct ? '✓ Correct!' : '✗ Wrong!'}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14.5, color: result.correct ? 'var(--gold)' : 'var(--danger)' }}>
+                {result.correct ? `+$${result.amount}` : `−$${result.amount}`}
+              </span>
             </div>
-          )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+          </motion.div>
+        )}
+
+        {!isActivePlayer && !revealed && (
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-faint)',
+            textAlign: 'center', letterSpacing: '0.05em', marginTop: 12,
+          }}>
+            Waiting for the active player to answer…
+          </div>
+        )}
+      </div>
+    </DockCard>
   );
 }

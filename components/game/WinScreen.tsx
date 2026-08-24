@@ -2,24 +2,21 @@
 
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import type { Player, Property } from '@/lib/types';
-import { TILES } from '@/lib/game-data';
+import type { Player, Property, Tile } from '@/lib/types';
+import { PLAYER_COLOR_MAP } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
+import { NEON } from '@/lib/colors';
 
 interface WinScreenProps {
   players: Player[];
   properties: Property[];
+  tiles: Tile[];
   myPlayerId: string;
 }
 
-const NEON: Record<string, string> = {
-  cyan: 'var(--neon-cyan)', magenta: 'var(--neon-magenta)', lime: 'var(--neon-lime)',
-  amber: 'var(--neon-amber)', violet: 'var(--neon-violet)', rose: 'var(--neon-rose)',
-};
-const NEON_HEX: Record<string, string> = {
-  cyan: '#00f5ff', magenta: '#ff00ff', lime: '#00ff88',
-  amber: '#ffcc00', violet: '#8b5cf6', rose: '#ff2d78',
-};
+const NEON_HEX: Record<string, string> = Object.fromEntries(
+  Object.entries(PLAYER_COLOR_MAP).map(([k, v]) => [k, v.hex]),
+);
 
 function WinnerToken({ color, size = 80 }: { color: string; size?: number }) {
   const c = NEON[color] || 'var(--neon-cyan)';
@@ -58,12 +55,13 @@ function Particle({ color, delay }: { color: string; delay: number }) {
         pointerEvents: 'none',
       }}
       animate={{ y: ['0vh', '110vh'], rotate: [0, 360 * (Math.random() > 0.5 ? 1 : -1)], opacity: [1, 1, 0] }}
-      transition={{ duration: 2.5 + Math.random() * 2, delay, ease: 'linear', repeat: Infinity, repeatDelay: Math.random() * 3 }}
+      transition={{ duration: 2.5 + Math.random() * 2, delay, ease: 'linear' }}
     />
   );
 }
 
-export default function WinScreen({ players, properties, myPlayerId }: WinScreenProps) {
+export default function WinScreen({ players, properties, tiles, myPlayerId }: WinScreenProps) {
+  const TILES = tiles;
   const router = useRouter();
 
   const ranked = [...players].sort((a, b) => {

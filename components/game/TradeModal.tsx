@@ -1,44 +1,79 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import type { GameRoom, Player, Property } from '@/lib/types';
-import { TILES, SET_COLORS } from '@/lib/game-data';
+import type { GameRoom, Player, Property, Tile } from '@/lib/types';
+import { SET_COLORS } from '@/lib/game-data';
 import { formatMoney } from '@/lib/utils';
 import { proposeTrade, acceptTrade, rejectTrade } from '@/app/actions/game';
+import { NEON } from '@/lib/colors';
+import { playClick } from '@/lib/sounds';
+import { CloseIcon } from './icons';
+import ErrorNote from './ErrorNote';
 
 interface TradeModalProps {
   room: GameRoom;
   myPlayer: Player;
   allPlayers: Player[];
   properties: Property[];
+  tiles: Tile[];
   onClose: () => void;
 }
 
-function TileTag({ tileId, color }: { tileId: number; color: string }) {
-  const tile = TILES[tileId];
+function TileTag({ tiles, tileId, selected, onClick }: { tiles: Tile[]; tileId: number; selected?: boolean; onClick?: () => void }) {
+  const tile = tiles[tileId];
+  const color = tile?.set ? SET_COLORS[tile.set] : 'var(--set-transit)';
+  const Tag = onClick ? 'button' : 'span';
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 7px', borderRadius: 'var(--r-pill)',
-      background: `${color}18`, border: `1px solid ${color}40`,
-      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-secondary)',
-    }}>
-      {tile?.flag && <span>{tile.flag}</span>}
+    <Tag
+      onClick={onClick}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '5px 11px', borderRadius: 'var(--r-pill)',
+        background: selected ? `${color}22` : 'oklch(1 0 0 / 0.04)',
+        border: `1px solid ${selected ? `${color}88` : 'var(--stroke-soft)'}`,
+        fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 500,
+        color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'all var(--dur-fast) var(--ease-out)',
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
       {tile?.name ?? `Tile ${tileId}`}
-    </span>
+    </Tag>
   );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 6 }}>
+    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 8 }}>
       {children}
     </div>
   );
 }
 
-export default function TradeModal({ room, myPlayer, allPlayers, properties, onClose }: TradeModalProps) {
+function CashInput({ value, max, onChange }: { value: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>Cash</span>
+      <div style={{ position: 'relative' }}>
+        <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--gold)' }}>$</span>
+        <input
+          type="number" min={0} max={max} value={value}
+          onChange={e => onChange(Math.max(0, Math.min(max, Number(e.target.value))))}
+          style={{
+            width: 110, padding: '8px 10px 8px 22px', borderRadius: 'var(--r-sm)',
+            background: 'var(--bg-input)', border: '1px solid var(--stroke-soft)',
+            fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)',
+            outline: 'none',
+          }}
+        />
+      </div>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)' }}>of {formatMoney(max)}</span>
+    </div>
+  );
+}
+
+export default function TradeModal({ room, myPlayer, allPlayers, properties, tiles, onClose }: TradeModalProps) {
   const pending = room.pending_action;
   const isIncoming = pending?.type === 'trade_offer' && pending.trade_to_player_id === myPlayer.id;
   const isOutgoing = pending?.type === 'trade_offer' && pending.trade_from_player_id === myPlayer.id;
@@ -65,9 +100,11 @@ export default function TradeModal({ room, myPlayer, allPlayers, properties, onC
   );
 
   function toggleOffer(tileId: number) {
+    playClick();
     setOfferTileIds(prev => prev.includes(tileId) ? prev.filter(id => id !== tileId) : [...prev, tileId]);
   }
   function toggleRequest(tileId: number) {
+    playClick();
     setRequestTileIds(prev => prev.includes(tileId) ? prev.filter(id => id !== tileId) : [...prev, tileId]);
   }
 
@@ -98,268 +135,250 @@ export default function TradeModal({ room, myPlayer, allPlayers, properties, onC
     setLoading(false);
   }
 
-  const overlayStyle: React.CSSProperties = {
-    position: 'fixed', inset: 0, zIndex: 50,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: 16,
-    background: 'transparent',
-    backdropFilter: 'none',
-    WebkitBackdropFilter: 'none',
-    pointerEvents: 'none',
-  };
-  const cardStyle: React.CSSProperties = {
-    width: '100%', maxWidth: 420, maxHeight: '90vh',
-    display: 'flex', flexDirection: 'column',
-    background: 'var(--bg-glass-strong)',
-    border: '1px solid var(--stroke-soft)',
-    borderRadius: 'var(--r-2xl)',
-    overflow: 'hidden',
-    pointerEvents: 'auto',
-  };
-  const headerStyle: React.CSSProperties = {
-    padding: '16px 20px 12px',
-    borderBottom: '1px solid var(--stroke-hairline)',
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    flexShrink: 0,
-  };
+  const errorBox = error && (
+    <ErrorNote style={{ padding: '8px 12px' }}>{error}</ErrorNote>
+  );
+
+  // ── Side sheet shell ─────────────────────────────────────────────
+  // Plain render helper (NOT a component) so inputs inside keep focus across re-renders.
+  function renderSheet({ title, subtitle, children, footer, dismissable }: {
+    title: string; subtitle?: string; children: React.ReactNode; footer: React.ReactNode; dismissable?: boolean;
+  }) {
+    return (
+      <div
+        style={{
+          position: 'fixed', inset: 0, zIndex: 55,
+          background: 'oklch(0.1 0.02 262 / 0.35)',
+          backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)',
+        }}
+        onClick={(e) => dismissable && e.target === e.currentTarget && onClose()}
+      >
+        <div
+          className="tu-sheet-in"
+          style={{
+            position: 'absolute', top: 0, right: 0, bottom: 0,
+            width: 'min(430px, 100vw)',
+            background: 'var(--bg-glass-strong)',
+            backdropFilter: 'blur(24px) saturate(1.15)',
+            WebkitBackdropFilter: 'blur(24px) saturate(1.15)',
+            borderLeft: '1px solid var(--stroke-soft)',
+            boxShadow: 'var(--shadow-xl)',
+            display: 'flex', flexDirection: 'column',
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            padding: '18px 20px 14px',
+            borderBottom: '1px solid var(--stroke-hairline)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+            flexShrink: 0,
+          }}>
+            <div>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 17, color: 'var(--text-primary)' }}>{title}</div>
+              {subtitle && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{subtitle}</div>}
+            </div>
+            <button
+              onClick={() => { playClick(); if (dismissable) onClose(); else handleReject(); }}
+              className="tu-btn tu-btn-ghost"
+              style={{ width: 32, height: 32, padding: 0, color: 'var(--text-muted)' }}
+              title={dismissable ? 'Close' : 'Dismiss trade'}
+            >
+              <CloseIcon size={14} />
+            </button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {children}
+          </div>
+          <div style={{ padding: '14px 20px 18px', borderTop: '1px solid var(--stroke-hairline)', display: 'flex', gap: 9, flexShrink: 0 }}>
+            {footer}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Incoming offer ──────────────────────────────────────────────
   if (isIncoming && pending?.type === 'trade_offer') {
     const fromName = pending.trade_from_player_name ?? 'Someone';
     const offeredTiles = pending.trade_offer_tile_ids ?? [];
     const requestedTiles = pending.trade_request_tile_ids ?? [];
-    return (
-      <motion.div style={overlayStyle} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <motion.div style={cardStyle} initial={{ scale: 0.94, y: 12 }} animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 340, damping: 26 }}>
-          <div style={headerStyle}>
-            <div>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>Trade Offer</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>{fromName} wants to trade</div>
-            </div>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {error && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)', background: 'oklch(0.68 0.22 25 / 0.08)', border: '1px solid oklch(0.68 0.22 25 / 0.2)', borderRadius: 'var(--r-sm)', padding: '6px 10px' }}>{error}</div>}
+    return renderSheet({
+      title: 'Incoming trade',
+      subtitle: `${fromName} wants to make a deal`,
+      footer: (
+        <>
+          <button disabled={loading} onClick={handleReject} className="tu-btn tu-btn-ghost" style={{ flex: 1, color: 'var(--text-muted)' }}>
+            Reject
+          </button>
+          <button disabled={loading} onClick={handleAccept} className="tu-btn tu-btn-primary" style={{ flex: 2 }}>
+            {loading ? 'Processing…' : 'Accept trade'}
+          </button>
+        </>
+      ),
+      children: (
+        <>
+          {errorBox}
 
-            <div style={{ background: 'var(--bg-raised)', borderRadius: 'var(--r-lg)', padding: '12px 14px' }}>
-              <SectionLabel>{fromName} offers you</SectionLabel>
-              {offeredTiles.length === 0 && (pending.trade_offer_cash ?? 0) === 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>Nothing</span>}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: offeredTiles.length > 0 ? 6 : 0 }}>
-                {offeredTiles.map(id => <TileTag key={id} tileId={id} color={SET_COLORS[TILES[id]?.set ?? ''] ?? 'var(--stroke-soft)'} />)}
-              </div>
-              {(pending.trade_offer_cash ?? 0) > 0 && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, color: 'var(--success)' }}>+ {formatMoney(pending.trade_offer_cash!)}</span>
-              )}
+          <div style={{ background: 'var(--success-soft)', border: '1px solid oklch(0.78 0.13 155 / 0.25)', borderRadius: 'var(--r-lg)', padding: '13px 15px' }}>
+            <SectionLabel>You receive</SectionLabel>
+            {offeredTiles.length === 0 && (pending.trade_offer_cash ?? 0) === 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-faint)' }}>Nothing</span>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: offeredTiles.length > 0 ? 8 : 0 }}>
+              {offeredTiles.map(id => <TileTag key={id} tiles={tiles} tileId={id} />)}
             </div>
+            {(pending.trade_offer_cash ?? 0) > 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16, color: 'var(--gold)' }}>+ {formatMoney(pending.trade_offer_cash!)}</span>
+            )}
+          </div>
 
-            <div style={{ background: 'var(--bg-raised)', borderRadius: 'var(--r-lg)', padding: '12px 14px' }}>
-              <SectionLabel>{fromName} wants from you</SectionLabel>
-              {requestedTiles.length === 0 && (pending.trade_request_cash ?? 0) === 0 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>Nothing</span>}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: requestedTiles.length > 0 ? 6 : 0 }}>
-                {requestedTiles.map(id => <TileTag key={id} tileId={id} color={SET_COLORS[TILES[id]?.set ?? ''] ?? 'var(--stroke-soft)'} />)}
-              </div>
-              {(pending.trade_request_cash ?? 0) > 0 && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, color: 'var(--danger)' }}>− {formatMoney(pending.trade_request_cash!)}</span>
-              )}
+          <div style={{ background: 'var(--danger-soft)', border: '1px solid oklch(0.71 0.155 25 / 0.22)', borderRadius: 'var(--r-lg)', padding: '13px 15px' }}>
+            <SectionLabel>You give</SectionLabel>
+            {requestedTiles.length === 0 && (pending.trade_request_cash ?? 0) === 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-faint)' }}>Nothing</span>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: requestedTiles.length > 0 ? 8 : 0 }}>
+              {requestedTiles.map(id => <TileTag key={id} tiles={tiles} tileId={id} />)}
             </div>
+            {(pending.trade_request_cash ?? 0) > 0 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16, color: 'var(--danger)' }}>− {formatMoney(pending.trade_request_cash!)}</span>
+            )}
           </div>
-          <div style={{ padding: '12px 20px 16px', borderTop: '1px solid var(--stroke-hairline)', display: 'flex', gap: 8, flexShrink: 0 }}>
-            <button
-              disabled={loading}
-              onClick={handleReject}
-              style={{ flex: 1, padding: '10px', borderRadius: 'var(--r-md)', background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-secondary)', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}
-            >
-              Reject
-            </button>
-            <button
-              disabled={loading}
-              onClick={handleAccept}
-              style={{ flex: 2, padding: '10px', borderRadius: 'var(--r-md)', background: 'linear-gradient(180deg, var(--neon-lime) 0%, oklch(from var(--neon-lime) calc(l * 0.82) c h) 100%)', border: 'none', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, color: 'oklch(0.12 0.02 260)', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, boxShadow: '0 4px 16px oklch(from var(--neon-lime) l c h / 0.35)' }}
-            >
-              {loading ? 'Processing…' : 'Accept Trade'}
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    );
+        </>
+      ),
+    });
   }
 
   // ── Outgoing / waiting ──────────────────────────────────────────
   if (isOutgoing && pending?.type === 'trade_offer') {
-    return (
-      <motion.div style={overlayStyle} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <motion.div style={cardStyle} initial={{ scale: 0.94, y: 12 }} animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 340, damping: 26 }}>
-          <div style={headerStyle}>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>Waiting for response…</div>
+    return renderSheet({
+      title: 'Offer sent',
+      subtitle: `Waiting for ${pending.trade_to_player_name ?? 'player'} to respond…`,
+      footer: (
+        <button disabled={loading} onClick={handleReject} className="tu-btn" style={{ flex: 1, color: 'var(--gold)' }}>
+          Cancel offer
+        </button>
+      ),
+      children: (
+        <>
+          {errorBox}
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '28px 0',
+            fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)',
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: '50%',
+              border: '3px solid var(--stroke-soft)', borderTopColor: 'var(--accent)',
+              animation: 'tu-spin 0.9s linear infinite',
+            }} />
+            They&apos;re weighing it up…
           </div>
-          <div style={{ padding: '20px', textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', marginBottom: 16 }}>
-              Offer sent to {pending.trade_to_player_name ?? 'player'}
-            </div>
-            <button
-              disabled={loading}
-              onClick={handleReject}
-              style={{ padding: '10px 20px', borderRadius: 'var(--r-md)', background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--neon-amber)', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}
-            >
-              Cancel offer
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    );
+        </>
+      ),
+    });
   }
 
   // ── Proposal form ───────────────────────────────────────────────
-  return (
-    <motion.div style={overlayStyle} initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <motion.div style={cardStyle} initial={{ scale: 0.94, y: 12 }} animate={{ scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 340, damping: 26 }}>
-        <div style={headerStyle}>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>Propose Trade</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 2 }}>Only unimproved properties can be traded</div>
-          </div>
-          <button onClick={onClose} style={{ width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)', borderRadius: 'var(--r-sm)', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 12 }}>✕</button>
-        </div>
+  return renderSheet({
+    title: 'Propose a trade',
+    subtitle: 'Only unimproved properties can change hands',
+    dismissable: true,
+    footer: (
+      <>
+        <button onClick={onClose} className="tu-btn tu-btn-ghost" style={{ flex: 1, color: 'var(--text-muted)' }}>
+          Cancel
+        </button>
+        <button
+          disabled={loading || !toPlayerId}
+          onClick={handlePropose}
+          className="tu-btn tu-btn-primary"
+          style={{ flex: 2 }}
+        >
+          {loading ? 'Sending…' : 'Send offer'}
+        </button>
+      </>
+    ),
+    children: (
+      <>
+        {errorBox}
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {error && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--danger)', background: 'oklch(0.68 0.22 25 / 0.08)', border: '1px solid oklch(0.68 0.22 25 / 0.2)', borderRadius: 'var(--r-sm)', padding: '6px 10px' }}>{error}</div>}
-
-          {/* Select target player */}
-          <div>
-            <SectionLabel>Trade with</SectionLabel>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {otherPlayers.map(p => (
+        {/* Select target player */}
+        <div>
+          <SectionLabel>Trade with</SectionLabel>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {otherPlayers.map(p => {
+              const sel = toPlayerId === p.id;
+              const neon = NEON[p.color] ?? 'var(--neon-cyan)';
+              return (
                 <button
                   key={p.id}
-                  onClick={() => { setToPlayerId(p.id); setRequestTileIds([]); }}
+                  onClick={() => { playClick(); setToPlayerId(p.id); setRequestTileIds([]); }}
                   style={{
-                    padding: '6px 12px', borderRadius: 'var(--r-pill)',
-                    fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 11,
-                    background: toPlayerId === p.id ? 'oklch(0.82 0.17 210 / 0.15)' : 'var(--bg-raised)',
-                    border: `1px solid ${toPlayerId === p.id ? 'oklch(0.82 0.17 210 / 0.5)' : 'var(--stroke-soft)'}`,
-                    color: toPlayerId === p.id ? 'var(--neon-cyan)' : 'var(--text-secondary)',
-                    cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    padding: '7px 14px', borderRadius: 'var(--r-pill)',
+                    fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12.5,
+                    background: sel ? `oklch(from ${neon} l c h / 0.14)` : 'oklch(1 0 0 / 0.04)',
+                    border: `1px solid ${sel ? neon : 'var(--stroke-soft)'}`,
+                    color: sel ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    transition: 'all var(--dur-fast) var(--ease-out)',
                   }}
                 >
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: neon, boxShadow: sel ? `0 0 6px ${neon}` : 'none' }} />
                   {p.name}
                 </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* My offer */}
+        <div style={{ background: 'oklch(1 0 0 / 0.02)', border: '1px solid var(--stroke-hairline)', borderRadius: 'var(--r-lg)', padding: '13px 15px' }}>
+          <SectionLabel>You offer</SectionLabel>
+          {myTradeable.length > 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 11 }}>
+              {myTradeable.map(prop => (
+                <TileTag
+                  key={prop.id}
+                  tiles={tiles}
+                  tileId={prop.tile_id}
+                  selected={offerTileIds.includes(prop.tile_id)}
+                  onClick={() => toggleOffer(prop.tile_id)}
+                />
               ))}
             </div>
-          </div>
-
-          {/* My offer */}
-          <div>
-            <SectionLabel>You offer</SectionLabel>
-            {myTradeable.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-                {myTradeable.map(prop => {
-                  const tile  = TILES[prop.tile_id];
-                  const color = tile.set ? SET_COLORS[tile.set] : 'var(--stroke-soft)';
-                  const sel   = offerTileIds.includes(prop.tile_id);
-                  return (
-                    <button
-                      key={prop.id}
-                      onClick={() => toggleOffer(prop.tile_id)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '3px 9px', borderRadius: 'var(--r-pill)',
-                        background: sel ? `${color}25` : 'var(--bg-raised)',
-                        border: `1px solid ${sel ? `${color}70` : 'var(--stroke-soft)'}`,
-                        fontFamily: 'var(--font-mono)', fontSize: 9,
-                        color: sel ? color : 'var(--text-secondary)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {tile.flag && <span>{tile.flag}</span>}
-                      {tile.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>Cash:</span>
-              <input
-                type="number" min={0} max={myPlayer.balance} value={offerCash}
-                onChange={e => setOfferCash(Math.max(0, Math.min(myPlayer.balance, Number(e.target.value))))}
-                style={{
-                  width: 90, padding: '5px 8px', borderRadius: 'var(--r-sm)',
-                  background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
-                  fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)',
-                  outline: 'none',
-                }}
-              />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>max {formatMoney(myPlayer.balance)}</span>
-            </div>
-          </div>
-
-          {/* Their offer */}
-          {toPlayerId && (
-            <div>
-              <SectionLabel>You request from {toPlayer?.name}</SectionLabel>
-              {theirTradeable.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-                  {theirTradeable.map(prop => {
-                    const tile  = TILES[prop.tile_id];
-                    const color = tile.set ? SET_COLORS[tile.set] : 'var(--stroke-soft)';
-                    const sel   = requestTileIds.includes(prop.tile_id);
-                    return (
-                      <button
-                        key={prop.id}
-                        onClick={() => toggleRequest(prop.tile_id)}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          padding: '3px 9px', borderRadius: 'var(--r-pill)',
-                          background: sel ? `${color}25` : 'var(--bg-raised)',
-                          border: `1px solid ${sel ? `${color}70` : 'var(--stroke-soft)'}`,
-                          fontFamily: 'var(--font-mono)', fontSize: 9,
-                          color: sel ? color : 'var(--text-secondary)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {tile.flag && <span>{tile.flag}</span>}
-                        {tile.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {theirTradeable.length === 0 && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{toPlayer?.name} has no tradeable properties</span>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>Cash:</span>
-                <input
-                  type="number" min={0} max={toPlayer?.balance ?? 0} value={requestCash}
-                  onChange={e => setRequestCash(Math.max(0, Math.min(toPlayer?.balance ?? 0, Number(e.target.value))))}
-                  style={{
-                    width: 90, padding: '5px 8px', borderRadius: 'var(--r-sm)',
-                    background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)',
-                    fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)',
-                    outline: 'none',
-                  }}
-                />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-faint)' }}>max {formatMoney(toPlayer?.balance ?? 0)}</span>
-              </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', marginBottom: 10 }}>
+              No tradeable properties (sell upgrades first)
             </div>
           )}
+          <CashInput value={offerCash} max={myPlayer.balance} onChange={setOfferCash} />
         </div>
 
-        <div style={{ padding: '12px 20px 16px', borderTop: '1px solid var(--stroke-hairline)', display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button
-            onClick={onClose}
-            style={{ flex: 1, padding: '10px', borderRadius: 'var(--r-md)', background: 'var(--bg-raised)', border: '1px solid var(--stroke-soft)', fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}
-          >
-            Cancel
-          </button>
-          <button
-            disabled={loading || !toPlayerId}
-            onClick={handlePropose}
-            style={{ flex: 2, padding: '10px', borderRadius: 'var(--r-md)', background: 'linear-gradient(180deg, var(--neon-cyan) 0%, oklch(from var(--neon-cyan) calc(l * 0.82) c h) 100%)', border: 'none', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 12, color: 'oklch(0.12 0.02 260)', cursor: (loading || !toPlayerId) ? 'not-allowed' : 'pointer', opacity: (loading || !toPlayerId) ? 0.5 : 1, boxShadow: '0 4px 16px oklch(from var(--neon-cyan) l c h / 0.35)' }}
-          >
-            {loading ? 'Sending…' : 'Send Offer'}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
+        {/* Their side */}
+        {toPlayerId && (
+          <div style={{ background: 'oklch(1 0 0 / 0.02)', border: '1px solid var(--stroke-hairline)', borderRadius: 'var(--r-lg)', padding: '13px 15px' }}>
+            <SectionLabel>You request from {toPlayer?.name}</SectionLabel>
+            {theirTradeable.length > 0 ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 11 }}>
+                {theirTradeable.map(prop => (
+                  <TileTag
+                    key={prop.id}
+                    tiles={tiles}
+                    tileId={prop.tile_id}
+                    selected={requestTileIds.includes(prop.tile_id)}
+                    onClick={() => toggleRequest(prop.tile_id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', marginBottom: 10 }}>
+                {toPlayer?.name} has no tradeable properties
+              </div>
+            )}
+            <CashInput value={requestCash} max={toPlayer?.balance ?? 0} onChange={setRequestCash} />
+          </div>
+        )}
+      </>
+    ),
+  });
 }

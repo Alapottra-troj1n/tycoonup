@@ -1,80 +1,107 @@
 @import "tailwindcss";
 @import "flag-icons/css/flag-icons.min.css";
 
-/* ─── Design Tokens — TycoonUP Boardroom ─── */
+/* ════════════════════════════════════════════════════════════════════
+   TycoonUP Design System v2 — "Boardroom Lounge"
+   Warm ink-navy surfaces · gold = money · mint = action · soft pastel
+   player accents at equal luminance. Depth comes from layered shadows
+   and 1px highlights, not neon bloom.
+   ════════════════════════════════════════════════════════════════════ */
 :root {
-  /* Surfaces */
-  --bg-abyss: oklch(0.13 0.016 255);
-  --bg-base: oklch(0.17 0.020 255);
-  --bg-raised: oklch(0.21 0.022 255);
-  --bg-glass: oklch(0.24 0.024 255 / 0.60);
-  --bg-glass-strong: oklch(0.27 0.028 255 / 0.82);
-  --bg-tile: oklch(0.26 0.024 255);
-  --bg-tile-hover: oklch(0.30 0.028 255);
+  /* ── Surfaces ── */
+  --bg-abyss: oklch(0.145 0.022 268);
+  --bg-base: oklch(0.18 0.024 264);
+  --bg-raised: oklch(0.235 0.026 262);
+  --bg-overlay: oklch(0.26 0.028 262);
+  --bg-glass: oklch(0.21 0.026 262 / 0.72);
+  --bg-glass-strong: oklch(0.195 0.025 262 / 0.92);
+  --bg-tile: oklch(0.245 0.022 260);
+  --bg-tile-hover: oklch(0.30 0.027 260);
+  --bg-input: oklch(0.16 0.02 262);
 
-  /* Borders */
-  --stroke-hairline: oklch(1 0 0 / 0.08);
-  --stroke-soft: oklch(1 0 0 / 0.12);
-  --stroke-strong: oklch(1 0 0 / 0.22);
+  /* ── Borders ── */
+  --stroke-hairline: oklch(1 0 0 / 0.07);
+  --stroke-soft: oklch(1 0 0 / 0.13);
+  --stroke-strong: oklch(1 0 0 / 0.24);
+  --stroke-highlight: inset 0 1px 0 oklch(1 0 0 / 0.06);
 
-  /* Text */
-  --text-primary: oklch(0.95 0.005 255);
-  --text-secondary: oklch(0.73 0.014 255);
-  --text-muted: oklch(0.56 0.018 255);
-  --text-faint: oklch(0.40 0.016 255);
+  /* ── Text — tuned for contrast on dark surfaces ── */
+  --text-primary: oklch(0.975 0.005 90);
+  --text-secondary: oklch(0.85 0.012 85);
+  --text-muted: oklch(0.70 0.015 80);
+  --text-faint: oklch(0.555 0.015 78);
+  --text-on-accent: oklch(0.17 0.03 260);
 
-  /* Player accent colors — muted, easy on the eyes */
-  --neon-cyan: oklch(0.76 0.12 210);
-  --neon-cyan-dim: oklch(0.50 0.09 210);
-  --neon-magenta: oklch(0.68 0.13 340);
-  --neon-magenta-dim: oklch(0.44 0.09 340);
-  --neon-lime: oklch(0.77 0.13 145);
-  --neon-lime-dim: oklch(0.52 0.10 145);
-  --neon-amber: oklch(0.76 0.12 72);
-  --neon-amber-dim: oklch(0.52 0.09 72);
-  --neon-violet: oklch(0.66 0.12 290);
-  --neon-rose: oklch(0.66 0.12 18);
+  /* ── Player accent colors — equal luminance, soft chroma ── */
+  --neon-cyan: oklch(0.80 0.10 200);
+  --neon-cyan-dim: oklch(0.52 0.07 200);
+  --neon-magenta: oklch(0.76 0.11 340);
+  --neon-magenta-dim: oklch(0.50 0.08 340);
+  --neon-lime: oklch(0.80 0.12 150);
+  --neon-lime-dim: oklch(0.52 0.09 150);
+  --neon-amber: oklch(0.82 0.11 85);
+  --neon-amber-dim: oklch(0.54 0.08 85);
+  --neon-violet: oklch(0.75 0.10 295);
+  --neon-violet-dim: oklch(0.50 0.07 295);
+  --neon-rose: oklch(0.74 0.11 20);
+  --neon-rose-dim: oklch(0.49 0.08 20);
+  --neon-orange: oklch(0.78 0.12 55);
+  --neon-orange-dim: oklch(0.50 0.09 55);
+  --neon-sky: oklch(0.77 0.09 245);
+  --neon-sky-dim: oklch(0.50 0.07 245);
 
-  /* Semantic */
-  --success: oklch(0.72 0.14 150);
-  --danger: oklch(0.64 0.16 25);
-  --warning: oklch(0.76 0.12 72);
+  /* ── Semantic ── */
+  --accent: oklch(0.80 0.11 168);          /* mint — primary actions */
+  --accent-strong: oklch(0.70 0.12 168);
+  --accent-soft: oklch(0.80 0.11 168 / 0.14);
+  --gold: oklch(0.84 0.115 88);            /* money, pots, prices */
+  --gold-soft: oklch(0.84 0.115 88 / 0.14);
+  --success: oklch(0.78 0.13 155);
+  --success-soft: oklch(0.78 0.13 155 / 0.12);
+  --danger: oklch(0.71 0.155 25);
+  --danger-soft: oklch(0.71 0.155 25 / 0.12);
+  --warning: var(--gold);
 
-  /* Radii */
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-xl: 20px;
+  /* ── Radii ── */
+  --r-xs: 5px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
   --r-2xl: 28px;
   --r-pill: 999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.4);
-  --shadow-md: 0 4px 12px oklch(0 0 0 / 0.4), 0 1px 2px oklch(0 0 0 / 0.3);
-  --shadow-lg: 0 12px 40px oklch(0 0 0 / 0.5), 0 2px 6px oklch(0 0 0 / 0.3);
-  --shadow-xl: 0 24px 80px oklch(0 0 0 / 0.55), 0 4px 12px oklch(0 0 0 / 0.4);
+  /* ── Elevation ── */
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.35);
+  --shadow-md: 0 6px 16px oklch(0.05 0.02 270 / 0.45), 0 1px 3px oklch(0 0 0 / 0.3);
+  --shadow-lg: 0 16px 44px oklch(0.05 0.02 270 / 0.55), 0 3px 8px oklch(0 0 0 / 0.32);
+  --shadow-xl: 0 28px 80px oklch(0.04 0.02 270 / 0.62), 0 6px 16px oklch(0 0 0 / 0.38);
 
-  /* Glows — subtle, reduced radius and opacity */
-  --glow-cyan: 0 0 0 1px oklch(0.76 0.12 210 / 0.28), 0 0 14px oklch(0.76 0.12 210 / 0.18);
-  --glow-magenta: 0 0 0 1px oklch(0.68 0.13 340 / 0.30), 0 0 14px oklch(0.68 0.13 340 / 0.20);
-  --glow-lime: 0 0 0 1px oklch(0.77 0.13 145 / 0.28), 0 0 14px oklch(0.77 0.13 145 / 0.18);
-  --glow-amber: 0 0 0 1px oklch(0.76 0.12 72 / 0.28), 0 0 14px oklch(0.76 0.12 72 / 0.18);
+  /* Subtle accent halos (used sparingly) */
+  --glow-cyan: 0 0 0 1px oklch(0.80 0.10 200 / 0.30), 0 4px 18px oklch(0.80 0.10 200 / 0.14);
+  --glow-magenta: 0 0 0 1px oklch(0.76 0.11 340 / 0.30), 0 4px 18px oklch(0.76 0.11 340 / 0.14);
+  --glow-lime: 0 0 0 1px oklch(0.80 0.12 150 / 0.30), 0 4px 18px oklch(0.80 0.12 150 / 0.14);
+  --glow-amber: 0 0 0 1px oklch(0.82 0.11 85 / 0.30), 0 4px 18px oklch(0.82 0.11 85 / 0.14);
+  --glow-accent: 0 0 0 1px oklch(0.80 0.11 168 / 0.32), 0 4px 20px oklch(0.80 0.11 168 / 0.16);
 
-  /* Set band colors — tile group identifiers */
-  --set-transit: oklch(0.68 0.06 250);
-  --set-utility: oklch(0.56 0.04 250);
+  /* Set band colors for transit/utility tiles */
+  --set-transit: oklch(0.72 0.05 250);
+  --set-utility: oklch(0.62 0.04 250);
 
-  /* Motion */
+  /* Tile ownership bands — neutral until a player buys the tile */
+  --band-neutral: oklch(0.34 0.012 260);
+  --band-neutral-mortgaged: oklch(0.27 0.008 260);
+
+  /* ── Motion ── */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --dur-fast: 140ms;
-  --dur-med: 260ms;
-  --dur-slow: 460ms;
+  --dur-fast: 150ms;
+  --dur-med: 280ms;
+  --dur-slow: 480ms;
 
   /* Tailwind compat */
-  --background: oklch(0.13 0.016 255);
-  --foreground: oklch(0.95 0.005 255);
+  --background: var(--bg-abyss);
+  --foreground: var(--text-primary);
 }
 
 @theme inline {
@@ -92,55 +119,155 @@ body {
   background: var(--bg-abyss);
   color: var(--text-primary);
   font-family: var(--font-display), 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: 'ss01', 'cv01';
+  font-feature-settings: 'ss01', 'cv01', 'tnum';
 }
 
-::selection { background: var(--neon-cyan-dim); color: white; }
+::selection { background: oklch(0.80 0.11 168 / 0.35); color: white; }
 
-/* Gradient backdrop on app surface */
+/* Accessible focus */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Ambient backdrop — quiet aurora ── */
 .tu-backdrop {
   position: relative;
   min-height: 100vh;
   background:
-    radial-gradient(ellipse 80% 50% at 15%   5%,  oklch(0.28 0.08 265 / 0.30), transparent 60%),
-    radial-gradient(ellipse 60% 40% at 85% 100%,  oklch(0.26 0.09 200 / 0.25), transparent 55%),
-    radial-gradient(ellipse 40% 30% at 50%  50%,  oklch(0.22 0.06 290 / 0.15), transparent 70%),
-    radial-gradient(ellipse 35% 25% at 90%  10%,  oklch(0.25 0.07  72 / 0.12), transparent 60%),
+    radial-gradient(ellipse 90% 55% at 12%  -5%, oklch(0.26 0.05 285 / 0.24), transparent 62%),
+    radial-gradient(ellipse 70% 45% at 90% 110%, oklch(0.25 0.05 200 / 0.19), transparent 58%),
     var(--bg-abyss);
 }
-.tu-backdrop::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(oklch(1 0 0 / 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(1 0 0 / 0.018) 1px, transparent 1px);
-  background-size: 48px 48px;
-  pointer-events: none;
-  mask-image: radial-gradient(ellipse at center, black 40%, transparent 85%);
+
+/* ── Buttons ── */
+.tu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: var(--r-md);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  border: 1px solid var(--stroke-soft);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              background var(--dur-fast),
+              border-color var(--dur-fast),
+              opacity var(--dur-fast);
 }
+.tu-btn:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--stroke-strong); }
+.tu-btn:active:not(:disabled) { transform: translateY(0) scale(0.985); }
+.tu-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+.tu-btn-primary {
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+  color: var(--text-on-accent);
+  border: none;
+  box-shadow: 0 4px 16px oklch(0.80 0.11 168 / 0.30), inset 0 1px 0 oklch(1 0 0 / 0.25);
+}
+.tu-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 7px 22px oklch(0.80 0.11 168 / 0.38), inset 0 1px 0 oklch(1 0 0 / 0.25);
+}
+.tu-btn-gold {
+  background: linear-gradient(180deg, var(--gold) 0%, oklch(0.70 0.10 85) 100%);
+  color: var(--text-on-accent);
+  border: none;
+  box-shadow: 0 4px 16px oklch(0.84 0.115 88 / 0.30), inset 0 1px 0 oklch(1 0 0 / 0.3);
+}
+.tu-btn-ghost { background: transparent; }
+.tu-btn-danger { color: var(--danger); border-color: oklch(0.71 0.155 25 / 0.35); background: var(--danger-soft); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 0.08); border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 0.14); }
+::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 0.10); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 0.18); }
 
-button { cursor: pointer; }
+button { cursor: pointer; font-family: inherit; }
 button:disabled { cursor: not-allowed; }
+input, select { font-family: inherit; }
 
-/* Tile hover */
-.tile-cell:hover { background: var(--bg-tile-hover) !important; }
+/* ── Z-index scale ─────────────────────────────────────────────
+   board internals 0-20 · HUD bars/docks 30 · desktop status bar 35
+   · modals & sheets 50-55 · property manager 60 · turn announcer 65
+   · mobile log sheet 70 */
 
-/* Turn tracker animations */
+/* Tile hover — must not repaint the background: owned tiles keep their
+   owner tint. Brightness + ring only. */
+.tile-cell { transition: filter var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.tile-cell:hover { filter: brightness(1.12); box-shadow: 0 0 0 1px var(--stroke-strong), var(--shadow-sm); z-index: 5; }
+
+/* ════════════════════ Animations ════════════════════ */
+
 @keyframes tu-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.85); }
 }
-@keyframes tu-roll-bounce {
-  0% { transform: translateY(0) rotate(-6deg); }
-  30% { transform: translateY(-8px) rotate(-2deg); }
-  60% { transform: translateY(2px) rotate(-8deg); }
-  100% { transform: translateY(0) rotate(-6deg); }
+
+/* Flash a tile when its ownership changes */
+@keyframes tu-tile-claim {
+  0%   { filter: brightness(1.35) saturate(1.15); transform: scale(1.02); }
+  100% { filter: brightness(1) saturate(1); transform: scale(1); }
+}
+.tu-tile-claimed { animation: tu-tile-claim 700ms var(--ease-out); z-index: 6; }
+
+/* Pop the auction bid figure when it changes */
+@keyframes tu-bid-pop {
+  0%   { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+.tu-bid-pop { display: inline-block; animation: tu-bid-pop 320ms var(--ease-spring); }
+
+/* Docked card entrance (buy offer, auction, quiz…) */
+@keyframes tu-dock-in {
+  0%   { opacity: 0; transform: translateY(26px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tu-dock-in { animation: tu-dock-in 380ms var(--ease-spring); }
+
+/* Side sheet entrance (trade) */
+@keyframes tu-sheet-in {
+  0%   { opacity: 0; transform: translateX(48px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.tu-sheet-in { animation: tu-sheet-in 340ms var(--ease-out); }
+
+/* Banner drop (turn announcer) */
+@keyframes tu-banner-in {
+  0%   { opacity: 0; transform: translate(-50%, -24px) scale(0.94); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+/* Dice landing bounce + shadow */
+@keyframes tu-dice-land {
+  0%   { transform: translateY(-14px); }
+  45%  { transform: translateY(2px); }
+  70%  { transform: translateY(-4px); }
+  100% { transform: translateY(0); }
+}
+@keyframes tu-dice-shadow {
+  0%   { transform: scale(0.55); opacity: 0.18; }
+  45%  { transform: scale(1.06); opacity: 0.45; }
+  70%  { transform: scale(0.9); opacity: 0.3; }
+  100% { transform: scale(1); opacity: 0.4; }
+}
+/* Loading spinner */
+@keyframes tu-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
